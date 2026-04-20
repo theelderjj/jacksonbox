@@ -5,6 +5,7 @@ results.jsonl
 client/node_modules/
 client/dist/
 client/.vite/
+client/*.tsbuildinfo
 client/coverage/
 client/test-results/
 client/playwright-report/
