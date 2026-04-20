@@ -37,7 +37,7 @@ export default function LeaderboardRound(): JSX.Element {
   return (
     <div className="stack">
       <div className="card">
-        <h2>Round {g.round} · Results</h2>
+        <h2>Round {g.round} - Results</h2>
         <p className="muted">
           {allFinal
             ? "Every reveal is complete. The leader can start the next round when the room is ready."
@@ -131,13 +131,13 @@ function ChoiceRow({
   nameOf: (id: string) => string;
 }): JSX.Element {
   const showTruth = allFinalized && choice.is_true;
-  const className = showTruth ? "choice true" : "choice";
+  const className = showTruth ? "choice true revealed-answer" : "choice";
   const style: CSSProperties = eliminated
     ? { opacity: 0.4, textDecoration: "line-through" }
     : {};
 
   return (
-    <div className={className} style={style}>
+    <div className={className} style={style} aria-label={showTruth ? "Revealed answer" : undefined}>
       <div>
         <div>{choice.text}</div>
         <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>

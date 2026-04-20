@@ -10,7 +10,7 @@ export default defineConfig({
   fullyParallel: false, // one shared backend, one shared room
   retries: 0,
   workers: 1,
-  reporter: [["list"], ["html", { open: "never" }]],
+  reporter: [["list", { printSteps: true }], ["html", { open: "never" }]],
   use: {
     baseURL: "http://localhost:5173",
     trace: "retain-on-failure",

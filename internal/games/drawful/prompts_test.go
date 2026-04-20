@@ -1,6 +1,9 @@
 package drawful
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestDefaultPromptsIncludesGeneratedSet(t *testing.T) {
 	want := len(basePrompts) + generatedPromptCount
@@ -24,7 +27,7 @@ func TestGeneratedPromptPoolsHaveExpectedSize(t *testing.T) {
 	cases := map[string][]string{
 		"subjects": generatedSubjects(),
 		"actions":  generatedActions(),
-		"twists":   generatedTwists(),
+		"scenes":   generatedScenes(),
 	}
 	for name, pool := range cases {
 		if got := len(pool); got != generatedPoolSize {
@@ -39,6 +42,34 @@ func TestGeneratedPromptPoolsHaveExpectedSize(t *testing.T) {
 				t.Fatalf("%s pool contains duplicate item %q", name, item)
 			}
 			seen[item] = true
+		}
+	}
+}
+
+func TestGeneratedPromptsStayShort(t *testing.T) {
+	for _, prompt := range generatedPrompts() {
+		words := len(strings.Fields(prompt))
+		if words > 12 {
+			t.Fatalf("generated prompt is too long (%d words): %q", words, prompt)
+		}
+	}
+}
+
+func TestGeneratedSubjectsIncludeRequestedPopCulturePool(t *testing.T) {
+	subjects := generatedSubjects()
+	joined := "\n" + strings.Join(subjects, "\n") + "\n"
+	for _, want := range []string{
+		"SpongeBob",
+		"Timmy Turner",
+		"Dexter",
+		"Samurai Jack",
+		"Spider-Man",
+		"Wolverine",
+		"Batman",
+		"Wonder Woman",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("generated subjects should include %q", want)
 		}
 	}
 }

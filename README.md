@@ -4,7 +4,7 @@ Jrawful-style realtime drawing-and-bluffing game. Go backend (actor model, singl
 
 ## Demo
 
-Add a short gameplay GIF or a 30-60 second clip here before sharing publicly.
+![Jrawful gameplay demo](docs/jrawful-gameplay.gif)
 
 Technical highlights for reviewers:
 - Actor-model room engine keeps all game state mutations single-threaded.
