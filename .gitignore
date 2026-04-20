@@ -1,0 +1,15 @@
+.gocache/
+results.jsonl
+
+# Client artifacts
+client/node_modules/
+client/dist/
+client/.vite/
+client/coverage/
+client/test-results/
+client/playwright-report/
+client/playwright/.cache/
+
+# OS/editor
+.DS_Store
+Thumbs.db
