@@ -25,6 +25,7 @@ import (
 	"github.com/jj/trivia/internal/games/priceisright"
 	"github.com/jj/trivia/internal/games/reactionduel"
 	"github.com/jj/trivia/internal/games/splitthevote"
+	"github.com/jj/trivia/internal/games/wordstorm"
 	"github.com/jj/trivia/internal/gateway"
 	"github.com/jj/trivia/internal/obs"
 	"github.com/jj/trivia/internal/reveal"
@@ -48,6 +49,7 @@ func main() {
 	priceisright.Register()
 	reactionduel.Register()
 	splitthevote.Register()
+	wordstorm.Register()
 
 	store := auth.NewStore()
 	rng := rand.New(rand.NewSource(*seed))
@@ -69,6 +71,8 @@ func main() {
 				return reactionduel.BuildPhases(state)
 			case "split_vote":
 				return splitthevote.BuildPhases(state)
+			case "word_storm":
+				return wordstorm.BuildPhases(state)
 			case "jrawful", "":
 				fallthrough
 			default:

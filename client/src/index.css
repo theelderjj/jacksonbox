@@ -540,6 +540,65 @@ h1, h2, h3 {
   animation: intro-pulse 2.6s ease-in-out infinite;
 }
 
+.storm-card {
+  background:
+    radial-gradient(circle at top left, rgba(34, 197, 94, 0.18), transparent 38%),
+    radial-gradient(circle at bottom right, rgba(56, 189, 248, 0.14), transparent 36%),
+    var(--card);
+}
+
+.storm-card textarea {
+  width: 100%;
+  resize: vertical;
+  margin: 14px 0;
+}
+
+.storm-constraint {
+  font-size: clamp(28px, 8vw, 72px);
+  line-height: 0.95;
+  margin: 10px 0 12px;
+  font-weight: 900;
+  letter-spacing: -0.06em;
+}
+
+.storm-letter {
+  font-size: clamp(96px, 32vw, 260px);
+  line-height: 0.82;
+  font-weight: 1000;
+  letter-spacing: -0.12em;
+  text-transform: uppercase;
+}
+
+.word-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.word-entry-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.word-entry {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.word-entry.crossed strong {
+  text-decoration: line-through;
+  text-decoration-thickness: 3px;
+  text-decoration-color: rgba(248, 113, 113, 0.9);
+  color: var(--fg-dim);
+}
+
 @keyframes intro-draw {
   from {
     opacity: 0.35;

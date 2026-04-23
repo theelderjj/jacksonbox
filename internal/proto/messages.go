@@ -4,83 +4,88 @@ package proto
 // per-phase guards, and client reference.
 const (
 	// Client -> Server
-	C2SJoinRoom          = "join_room"
-	C2SLeaveRoom         = "leave_room"
-	C2SReady             = "ready"
-	C2SSubmitDraw        = "submit_drawing"
-	C2SSubmitFake        = "submit_fake_prompt"
-	C2SSubmitVote        = "submit_vote"
-	C2SSubmitTap         = "submit_tap"
-	C2SSubmitPriceGuess  = "submit_price_guess"
-	C2SSubmitSplitSetup  = "submit_split_setup"
-	C2SSubmitSplitChoice = "submit_split_choice"
+	C2SJoinRoom              = "join_room"
+	C2SLeaveRoom             = "leave_room"
+	C2SReady                 = "ready"
+	C2SSubmitDraw            = "submit_drawing"
+	C2SSubmitFake            = "submit_fake_prompt"
+	C2SSubmitVote            = "submit_vote"
+	C2SSubmitTap             = "submit_tap"
+	C2SSubmitPriceGuess      = "submit_price_guess"
+	C2SSubmitSplitSetup      = "submit_split_setup"
+	C2SSubmitSplitChoice     = "submit_split_choice"
 	C2SSubmitFakeArtistGuess = "submit_fake_artist_guess"
-	C2SPing              = "ping"
-	C2SSetPause          = "set_pause"        // leader only: pause/resume timers
-	C2SSetPencilsDown    = "set_pencils_down" // leader only: lock/unlock drawing
-	C2SAdvanceReveal     = "advance_reveal"   // leader only: step leaderboard reveal / start next round
-	C2SUpdateSettings    = "update_settings"  // leader only: lobby game settings
-	C2SRerollPrompt      = "reroll_prompt"    // drawing phase: one reroll per player per round
-	C2SSelectGame        = "select_game"      // leader only: choose game from picker
-	C2SStartGame         = "start_game"       // leader only: explicitly start once everyone is ready
-	C2SReturnToPicker    = "return_to_picker" // leader only: leave results/lobby back to game picker
+	C2SSubmitWordList        = "submit_word_list"
+	C2SPing                  = "ping"
+	C2SSetPause              = "set_pause"        // leader only: pause/resume timers
+	C2SSetPencilsDown        = "set_pencils_down" // leader only: lock/unlock drawing
+	C2SAdvanceReveal         = "advance_reveal"   // leader only: step leaderboard reveal / start next round
+	C2SUpdateSettings        = "update_settings"  // leader only: lobby game settings
+	C2SRerollPrompt          = "reroll_prompt"    // drawing phase: one reroll per player per round
+	C2SSelectGame            = "select_game"      // leader only: choose game from picker
+	C2SStartGame             = "start_game"       // leader only: explicitly start once everyone is ready
+	C2SReturnToPicker        = "return_to_picker" // leader only: leave results/lobby back to game picker
 
 	// Server -> Client
-	S2CJoinAck         = "join_ack"
-	S2CStateUpdate     = "state_update"
-	S2CPhaseChange     = "phase_change"
-	S2CRoundResult     = "round_result"
-	S2CGameEnd         = "game_end"
-	S2CError           = "error"
-	S2CRoomEvicting    = "room_evicting"
-	S2CPong            = "pong"
-	S2CPromptIssued    = "prompt_issued"
-	S2CSubmitTick      = "submit_tick" // "X of Y submitted"
-	S2CReveal          = "reveal"
-	S2CRevealStep      = "reveal_step"    // one elimination or final-truth tick during reveal
-	S2CDrawings        = "drawings"       // drawings visible at fake-phase start
-	S2CVotingChoices   = "voting_choices" // merged choices visible at voting start
-	S2CPauseState      = "pause_state"    // paused / pencils-down / remaining-ms / leader
-	S2CLeaderChange    = "leader_change"  // leader promotion (also mirrored in state_update)
-	S2CGameCatalog     = "game_catalog"
-	S2CGameSelected    = "game_selected"
-	S2CReactionResult  = "reaction_result"
-	S2CPricePrompt     = "price_prompt"
-	S2CPriceResult     = "price_result"
-	S2CSplitVotePrompt = "split_vote_prompt"
-	S2CSplitReveal     = "split_reveal"
-	S2CFakeArtistTurn  = "fake_artist_turn"
+	S2CJoinAck          = "join_ack"
+	S2CStateUpdate      = "state_update"
+	S2CPhaseChange      = "phase_change"
+	S2CRoundResult      = "round_result"
+	S2CGameEnd          = "game_end"
+	S2CError            = "error"
+	S2CRoomEvicting     = "room_evicting"
+	S2CPong             = "pong"
+	S2CPromptIssued     = "prompt_issued"
+	S2CSubmitTick       = "submit_tick" // "X of Y submitted"
+	S2CReveal           = "reveal"
+	S2CRevealStep       = "reveal_step"    // one elimination or final-truth tick during reveal
+	S2CDrawings         = "drawings"       // drawings visible at fake-phase start
+	S2CVotingChoices    = "voting_choices" // merged choices visible at voting start
+	S2CPauseState       = "pause_state"    // paused / pencils-down / remaining-ms / leader
+	S2CLeaderChange     = "leader_change"  // leader promotion (also mirrored in state_update)
+	S2CGameCatalog      = "game_catalog"
+	S2CGameSelected     = "game_selected"
+	S2CReactionResult   = "reaction_result"
+	S2CPricePrompt      = "price_prompt"
+	S2CPriceResult      = "price_result"
+	S2CSplitVotePrompt  = "split_vote_prompt"
+	S2CSplitReveal      = "split_reveal"
+	S2CWordPrompt       = "word_prompt"
+	S2CWordEntry        = "word_entry"
+	S2CWordResult       = "word_result"
+	S2CFakeArtistTurn   = "fake_artist_turn"
 	S2CFakeArtistCanvas = "fake_artist_canvas"
 	S2CFakeArtistReplay = "fake_artist_replay"
 	S2CFakeArtistReveal = "fake_artist_reveal"
-	S2CDrawDuelRound   = "draw_duel_round"
-	S2CDrawDuelReveal  = "draw_duel_reveal"
-	S2CMafiaState      = "mafia_state"
-	S2CMafiaReveal     = "mafia_reveal"
+	S2CDrawDuelRound    = "draw_duel_round"
+	S2CDrawDuelReveal   = "draw_duel_reveal"
+	S2CMafiaState       = "mafia_state"
+	S2CMafiaReveal      = "mafia_reveal"
 )
 
 // KnownC2S is the gateway whitelist. Anything else -> error "unknown_type".
 var KnownC2S = map[string]struct{}{
-	C2SJoinRoom:          {},
-	C2SLeaveRoom:         {},
-	C2SReady:             {},
-	C2SSubmitDraw:        {},
-	C2SSubmitFake:        {},
-	C2SSubmitVote:        {},
-	C2SSubmitTap:         {},
-	C2SSubmitPriceGuess:  {},
-	C2SSubmitSplitSetup:  {},
-	C2SSubmitSplitChoice: {},
+	C2SJoinRoom:              {},
+	C2SLeaveRoom:             {},
+	C2SReady:                 {},
+	C2SSubmitDraw:            {},
+	C2SSubmitFake:            {},
+	C2SSubmitVote:            {},
+	C2SSubmitTap:             {},
+	C2SSubmitPriceGuess:      {},
+	C2SSubmitSplitSetup:      {},
+	C2SSubmitSplitChoice:     {},
 	C2SSubmitFakeArtistGuess: {},
-	C2SPing:              {},
-	C2SSetPause:          {},
-	C2SSetPencilsDown:    {},
-	C2SAdvanceReveal:     {},
-	C2SUpdateSettings:    {},
-	C2SRerollPrompt:      {},
-	C2SSelectGame:        {},
-	C2SStartGame:         {},
-	C2SReturnToPicker:    {},
+	C2SSubmitWordList:        {},
+	C2SPing:                  {},
+	C2SSetPause:              {},
+	C2SSetPencilsDown:        {},
+	C2SAdvanceReveal:         {},
+	C2SUpdateSettings:        {},
+	C2SRerollPrompt:          {},
+	C2SSelectGame:            {},
+	C2SStartGame:             {},
+	C2SReturnToPicker:        {},
 }
 
 // --- C->S payloads ---
@@ -128,6 +133,10 @@ type SubmitSplitChoicePayload struct {
 
 type SubmitFakeArtistGuessPayload struct {
 	Prompt string `json:"prompt"`
+}
+
+type SubmitWordListPayload struct {
+	Words []string `json:"words"`
 }
 
 // SetPausePayload is sent by the party leader to freeze or resume the current
@@ -375,13 +384,13 @@ type ReactionResultPayload struct {
 }
 
 type PricePromptPayload struct {
-	Round             int    `json:"round"`
-	ProductID         string `json:"product_id"`
-	ProductName       string `json:"product_name"`
-	ImageURL          string `json:"image_url"`
-	ThresholdCents    int    `json:"threshold_cents"`
-	ThresholdMode     string `json:"threshold_mode"`
-	ThresholdBaseCents int   `json:"threshold_base_cents"`
+	Round              int    `json:"round"`
+	ProductID          string `json:"product_id"`
+	ProductName        string `json:"product_name"`
+	ImageURL           string `json:"image_url"`
+	ThresholdCents     int    `json:"threshold_cents"`
+	ThresholdMode      string `json:"threshold_mode"`
+	ThresholdBaseCents int    `json:"threshold_base_cents"`
 }
 
 type PriceResultPayload struct {
@@ -421,6 +430,45 @@ type SplitRevealPayload struct {
 	ShowTarget    bool              `json:"show_target"`
 	Achieved      bool              `json:"achieved"`
 	PlayerChoices map[string]string `json:"player_choices"`
+}
+
+type WordLetterWindow struct {
+	Letter string `json:"letter"`
+	Index  int    `json:"index"`
+}
+
+type WordPromptPayload struct {
+	Letters             []WordLetterWindow `json:"letters"`
+	LetterSeconds       int                `json:"letter_seconds"`
+	BasePointsPerLetter int                `json:"base_points_per_letter"`
+	GrowthPercent       int                `json:"growth_percent"`
+}
+
+type WordEntryPayload struct {
+	PlayerID   string `json:"player_id"`
+	PlayerName string `json:"player_name"`
+	Word       string `json:"word"`
+	Letter     string `json:"letter"`
+	Status     string `json:"status"`
+	Message    string `json:"message"`
+	Points     int    `json:"points,omitempty"`
+}
+
+type WordPlayerResult struct {
+	PlayerID    string             `json:"player_id"`
+	PlayerName  string             `json:"player_name"`
+	Entries     []WordEntryPayload `json:"entries"`
+	Score       int                `json:"score"`
+	MadeUpCount int                `json:"made_up_count"`
+}
+
+type WordResultPayload struct {
+	Letters             []WordLetterWindow `json:"letters"`
+	LetterSeconds       int                `json:"letter_seconds"`
+	BasePointsPerLetter int                `json:"base_points_per_letter"`
+	GrowthPercent       int                `json:"growth_percent"`
+	Results             []WordPlayerResult `json:"results"`
+	AcceptedWords       []string           `json:"accepted_words"`
 }
 
 type FakeArtistTurnPayload struct {
@@ -487,19 +535,19 @@ type DrawDuelRoundPayload struct {
 }
 
 type DrawDuelRevealPayload struct {
-	Round            int                    `json:"round"`
-	Prompt           string                 `json:"prompt"`
-	ArtistAID        string                 `json:"artist_a_id"`
-	ArtistAName      string                 `json:"artist_a_name"`
-	ArtistBID        string                 `json:"artist_b_id"`
-	ArtistBName      string                 `json:"artist_b_name"`
-	Drawings         []DrawingSummary       `json:"drawings"`
-	VotesByJudge     map[string]string      `json:"votes_by_judge"`
-	VoteCountByDraw  map[string]int         `json:"vote_count_by_drawing"`
-	WinnerDrawingID  string                 `json:"winner_drawing_id,omitempty"`
-	WinnerArtistID   string                 `json:"winner_artist_id,omitempty"`
-	WinnerArtistName string                 `json:"winner_artist_name,omitempty"`
-	Tied             bool                   `json:"tied"`
+	Round            int               `json:"round"`
+	Prompt           string            `json:"prompt"`
+	ArtistAID        string            `json:"artist_a_id"`
+	ArtistAName      string            `json:"artist_a_name"`
+	ArtistBID        string            `json:"artist_b_id"`
+	ArtistBName      string            `json:"artist_b_name"`
+	Drawings         []DrawingSummary  `json:"drawings"`
+	VotesByJudge     map[string]string `json:"votes_by_judge"`
+	VoteCountByDraw  map[string]int    `json:"vote_count_by_drawing"`
+	WinnerDrawingID  string            `json:"winner_drawing_id,omitempty"`
+	WinnerArtistID   string            `json:"winner_artist_id,omitempty"`
+	WinnerArtistName string            `json:"winner_artist_name,omitempty"`
+	Tied             bool              `json:"tied"`
 }
 
 type MafiaPlayerState struct {
@@ -509,16 +557,16 @@ type MafiaPlayerState struct {
 }
 
 type MafiaStatePayload struct {
-	PlayerID    string             `json:"player_id"`
-	Round       int                `json:"round"`
-	Phase       string             `json:"phase"`
-	YourRole    string             `json:"your_role"`
-	TeamIDs     []string           `json:"team_ids"`
+	PlayerID     string             `json:"player_id"`
+	Round        int                `json:"round"`
+	Phase        string             `json:"phase"`
+	YourRole     string             `json:"your_role"`
+	TeamIDs      []string           `json:"team_ids"`
 	AlivePlayers []MafiaPlayerState `json:"alive_players"`
-	CanAct      bool               `json:"can_act"`
-	TargetIDs   []string           `json:"target_ids"`
-	Note        string             `json:"note,omitempty"`
-	LockedIn    bool               `json:"locked_in,omitempty"`
+	CanAct       bool               `json:"can_act"`
+	TargetIDs    []string           `json:"target_ids"`
+	Note         string             `json:"note,omitempty"`
+	LockedIn     bool               `json:"locked_in,omitempty"`
 }
 
 type MafiaRevealPayload struct {

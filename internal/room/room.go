@@ -1198,6 +1198,8 @@ func phaseAcceptsType(phaseName, msgType string) bool {
 		return startsWith(phaseName, "split_vote")
 	case proto.C2SSubmitFakeArtistGuess:
 		return startsWith(phaseName, "fake_artist_guess")
+	case proto.C2SSubmitWordList:
+		return startsWith(phaseName, "word_submit")
 	case proto.C2SReady:
 		return false // ready is lobby-only; handled before we get here
 	}

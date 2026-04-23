@@ -177,6 +177,38 @@ export default function Lobby(): JSX.Element {
               </select>
             </label>
           )}
+          {g.selectedGameId === "word_storm" && (
+            <>
+              <div className="card" style={{ gridColumn: "1 / -1", background: "#0f1720" }}>
+                <h3>How scoring works</h3>
+                <p className="muted">
+                  Submit as many dictionary words as you can for each letter. Letters rotate on a
+                  timer, words can only be used once per game, and scoring happens at the end.
+                </p>
+              </div>
+              <label>
+                <span>Letter timer</span>
+                <select
+                  value={Number(g.settings.game_options?.letter_seconds ?? 20)}
+                  disabled={!isLeader}
+                  onChange={(e) =>
+                    updateSettings({
+                      game_options: {
+                        ...(g.settings.game_options ?? {}),
+                        letter_seconds: Number(e.target.value),
+                      },
+                    })
+                  }
+                >
+                  {[10, 15, 20, 25, 30, 45, 60].map((seconds) => (
+                    <option key={seconds} value={seconds}>
+                      {formatSeconds(seconds)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </>
+          )}
           {g.selectedGameId === "price_is_right" && (
             <>
               <label>

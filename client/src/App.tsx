@@ -22,6 +22,7 @@ import FakeArtist from "./screens/FakeArtist";
 import DrawDuel from "./screens/DrawDuel";
 import Mafia from "./screens/Mafia";
 import PriceIsRight from "./screens/PriceIsRight";
+import WordStorm from "./screens/WordStorm";
 import RulesIntro from "./components/RulesIntro";
 import { getRulesDeck } from "./components/rulesDecks";
 
@@ -186,6 +187,7 @@ function pickScreen(roomMode: string, phase: string): JSX.Element {
   if (phase.startsWith("draw_duel_")) return <DrawDuel key={phase || "draw-duel"} />;
   if (phase.startsWith("mafia_")) return <Mafia key={phase || "mafia"} />;
   if (phase.startsWith("price_")) return <PriceIsRight key={phase || "price-is-right"} />;
+  if (phase.startsWith("word_")) return <WordStorm key={phase || "word-storm"} />;
   const key = phase || "lobby";
   if (phase.startsWith("drawing_submit")) return <DrawingScreen key={key} />;
   if (phase.startsWith("fake_prompt_submit")) return <FakePrompt key={key} />;

@@ -1,6 +1,6 @@
 # jacksonbox
 
-Jackson Box is a realtime party-game pack built on a Go single-writer room actor and a Vite/React/TypeScript client. It currently includes playable Jrawful, Draw Duel, Fake Artist, Mafia, Price is Right, Reaction Duel, and Split the Vote modes for invite-only rooms of up to 20 players.
+Jackson Box is a realtime party-game pack built on a Go single-writer room actor and a Vite/React/TypeScript client. It currently includes playable Jrawful, Draw Duel, Fake Artist, Mafia, Price is Right, Reaction Duel, Split the Vote, and Word Storm modes for invite-only rooms of up to 20 players.
 
 Full architecture lives in [docs/DESIGN.md](docs/DESIGN.md).
 
@@ -15,7 +15,8 @@ Playable game demos:
 [Mafia](docs/mafia-gameplay.gif),
 [Price is Right](docs/price-is-right-gameplay.gif),
 [Reaction Duel](docs/reaction-duel-gameplay.gif),
-[Split the Vote](docs/split-vote-gameplay.gif).
+[Split the Vote](docs/split-vote-gameplay.gif),
+[Word Storm](docs/word-storm-gameplay.gif).
 
 Mafia role-perspective demos and instructions live in [docs/mafia-roles.md](docs/mafia-roles.md):
 [citizen](docs/mafia-citizen.gif),
@@ -94,6 +95,7 @@ Current Playwright specs include:
 | `e2e/price-is-right.spec.ts` | Product image loading, guessing, closest-without-going-over reveal, results, and GIF shots. |
 | `e2e/reaction-duel.spec.ts` | Countdown, green-light tap, reaction times, results, and GIF shots. |
 | `e2e/split-vote.spec.ts` | Splitter-only target/options, non-splitter voting, reveal, and GIF shots. |
+| `e2e/word-storm.spec.ts` | Dictionary word submission, global duplicate rejection, points-per-letter scoring, reveal, and GIF shots. |
 
 ## Gameplay GIFs
 

@@ -55,3 +55,22 @@ func TestValidatePayloadPriceGuess(t *testing.T) {
 		t.Fatal("expected negative guess to be rejected")
 	}
 }
+
+func TestValidatePayloadSubmitWordList(t *testing.T) {
+	t.Parallel()
+
+	good, _ := json.Marshal(SubmitWordListPayload{Words: []string{"cat", "camel"}})
+	if err := ValidatePayload(C2SSubmitWordList, good); err != nil {
+		t.Fatalf("expected valid submit_word_list payload, got %v", err)
+	}
+
+	empty, _ := json.Marshal(SubmitWordListPayload{Words: nil})
+	if err := ValidatePayload(C2SSubmitWordList, empty); err == nil {
+		t.Fatal("expected empty word list to be rejected")
+	}
+
+	tooLong, _ := json.Marshal(SubmitWordListPayload{Words: []string{"supercalifragilisticexpialidociousword"}})
+	if err := ValidatePayload(C2SSubmitWordList, tooLong); err == nil {
+		t.Fatal("expected overlong word to be rejected")
+	}
+}

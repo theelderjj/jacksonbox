@@ -134,6 +134,28 @@ func ValidatePayload(typ string, raw json.RawMessage) error {
 		}
 		return nil
 
+	case C2SSubmitWordList:
+		var p SubmitWordListPayload
+		if err := json.Unmarshal(raw, &p); err != nil {
+			return err
+		}
+		if len(p.Words) == 0 {
+			return fmt.Errorf("at least one word required")
+		}
+		if len(p.Words) > 20 {
+			return fmt.Errorf("too many words (max 20)")
+		}
+		for _, word := range p.Words {
+			word = strings.TrimSpace(word)
+			if word == "" {
+				continue
+			}
+			if utf8.RuneCountInString(word) > 32 {
+				return fmt.Errorf("word too long (max 32)")
+			}
+		}
+		return nil
+
 	case C2SSetPause:
 		var p SetPausePayload
 		return json.Unmarshal(raw, &p)

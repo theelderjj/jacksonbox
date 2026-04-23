@@ -17,10 +17,10 @@ func TestDefaultCatalogIncludesJrawful(t *testing.T) {
 func TestPlannedGamesPresentButNotSelectable(t *testing.T) {
 	t.Parallel()
 
-	if _, ok := FindGame("word_storm"); !ok {
-		t.Fatal("expected word_storm in catalog")
+	if _, ok := FindGame("chain_reaction"); !ok {
+		t.Fatal("expected chain_reaction in catalog")
 	}
-	if err := CanSelectGame("word_storm", 4); err == nil {
+	if err := CanSelectGame("chain_reaction", 4); err == nil {
 		t.Fatal("expected planned game selection to fail")
 	}
 }
@@ -46,6 +46,9 @@ func TestCanSelectGameRejectsUnknownAndPlayerCount(t *testing.T) {
 	if err := CanSelectGame("draw_duel", 3); err != nil {
 		t.Fatalf("expected draw_duel selectable at 3 players, got %v", err)
 	}
+	if err := CanSelectGame("word_storm", 2); err != nil {
+		t.Fatalf("expected word_storm selectable at 2 players, got %v", err)
+	}
 	if err := CanSelectGame("price_is_right", 2); err != nil {
 		t.Fatalf("expected price_is_right selectable at 2 players, got %v", err)
 	}
@@ -58,7 +61,7 @@ func TestCatalogOrderStable(t *testing.T) {
 	t.Parallel()
 
 	got := DefaultCatalog()
-	want := []string{"jrawful", "fake_artist", "draw_duel", "word_storm", "reaction_duel", "price_is_right", "split_vote", "mafia"}
+	want := []string{"jrawful", "fake_artist", "draw_duel", "word_storm", "chain_reaction", "reaction_duel", "price_is_right", "split_vote", "mafia"}
 	if len(got) != len(want) {
 		t.Fatalf("catalog length mismatch: want %d got %d", len(want), len(got))
 	}

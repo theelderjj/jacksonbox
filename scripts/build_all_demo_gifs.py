@@ -19,6 +19,7 @@ GIFS: list[tuple[str, str, int]] = [
     ("price-is-right-*.png", "price-is-right-gameplay.gif", 900),
     ("reaction-duel-*.png", "reaction-duel-gameplay.gif", 900),
     ("split-vote-*.png", "split-vote-gameplay.gif", 900),
+    ("word-storm-*.png", "word-storm-gameplay.gif", 900),
     ("mafia-citizen-*.png", "mafia-citizen.gif", 900),
     ("mafia-mafia-*.png", "mafia-mafia.gif", 900),
     ("mafia-detective-*.png", "mafia-detective.gif", 900),

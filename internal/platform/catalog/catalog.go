@@ -60,6 +60,16 @@ func DefaultCatalog() []GameDefinition {
 			MaxPlayers:       20,
 			EstimatedMinutes: 8,
 			Tags:             []string{"word", "speed", "party"},
+			Status:           GameStatusAvailable,
+		},
+		{
+			ID:               "chain_reaction",
+			Name:             "Chain Reaction",
+			Summary:          "Build a last-letter word chain before the turn timer runs out.",
+			MinPlayers:       2,
+			MaxPlayers:       20,
+			EstimatedMinutes: 8,
+			Tags:             []string{"word", "turns", "quick"},
 			Status:           GameStatusPlanned,
 		},
 		{

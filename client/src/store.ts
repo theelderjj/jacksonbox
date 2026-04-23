@@ -28,6 +28,9 @@ import type {
   SettingsState,
   SplitRevealPayload,
   SplitVotePromptPayload,
+  WordPromptPayload,
+  WordEntryPayload,
+  WordResultPayload,
   VotingChoicesEntry,
 } from "./proto";
 import { Client, type WireEvent } from "./ws";
@@ -79,6 +82,9 @@ export type GameState = {
   priceResult: PriceResultPayload | null;
   splitVotePrompt: SplitVotePromptPayload | null;
   splitReveal: SplitRevealPayload | null;
+  wordPrompt: WordPromptPayload | null;
+  wordEntries: WordEntryPayload[];
+  wordResult: WordResultPayload | null;
   fakeArtistTurn: FakeArtistTurnPayload | null;
   fakeArtistCanvas: FakeArtistCanvasPayload | null;
   fakeArtistReplay: FakeArtistReplayPayload | null;
@@ -127,6 +133,9 @@ export const initialState: GameState = {
   priceResult: null,
   splitVotePrompt: null,
   splitReveal: null,
+  wordPrompt: null,
+  wordEntries: [],
+  wordResult: null,
   fakeArtistTurn: null,
   fakeArtistCanvas: null,
   fakeArtistReplay: null,
@@ -247,6 +256,7 @@ export function reduceState(prev: GameState, ev: WireEvent): GameState {
         startsWith(p.phase, "reaction_countdown") ||
         startsWith(p.phase, "price_prompt") ||
         startsWith(p.phase, "split_setup") ||
+        startsWith(p.phase, "word_prompt") ||
         startsWith(p.phase, "fake_artist_role") ||
         startsWith(p.phase, "draw_duel_prompt") ||
         startsWith(p.phase, "mafia_role_assign") ||
@@ -268,6 +278,9 @@ export function reduceState(prev: GameState, ev: WireEvent): GameState {
             priceResult: null as PriceResultPayload | null,
             splitVotePrompt: null as SplitVotePromptPayload | null,
             splitReveal: null as SplitRevealPayload | null,
+            wordPrompt: null as WordPromptPayload | null,
+            wordEntries: [] as WordEntryPayload[],
+            wordResult: null as WordResultPayload | null,
             fakeArtistTurn: null as FakeArtistTurnPayload | null,
             fakeArtistCanvas: null as FakeArtistCanvasPayload | null,
             fakeArtistReplay: null as FakeArtistReplayPayload | null,
@@ -379,6 +392,15 @@ export function reduceState(prev: GameState, ev: WireEvent): GameState {
 
     case "split_reveal":
       return { ...prev, splitReveal: ev.payload };
+
+    case "word_prompt":
+      return { ...prev, wordPrompt: ev.payload };
+
+    case "word_entry":
+      return { ...prev, wordEntries: [...prev.wordEntries, ev.payload] };
+
+    case "word_result":
+      return { ...prev, wordResult: ev.payload };
 
     case "fake_artist_turn":
       return { ...prev, fakeArtistTurn: ev.payload };

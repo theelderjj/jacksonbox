@@ -36,6 +36,9 @@ import {
   type ReactionResultPayload,
   type SplitRevealPayload,
   type SplitVotePromptPayload,
+  type WordPromptPayload,
+  type WordEntryPayload,
+  type WordResultPayload,
   type RoomEvictingPayload,
   type RoomState,
   type RoundResultPayload,
@@ -67,6 +70,9 @@ export type WireEvent =
   | { type: "price_result"; payload: PriceResultPayload }
   | { type: "split_vote_prompt"; payload: SplitVotePromptPayload }
   | { type: "split_reveal"; payload: SplitRevealPayload }
+  | { type: "word_prompt"; payload: WordPromptPayload }
+  | { type: "word_entry"; payload: WordEntryPayload }
+  | { type: "word_result"; payload: WordResultPayload }
   | { type: "fake_artist_turn"; payload: FakeArtistTurnPayload }
   | { type: "fake_artist_canvas"; payload: FakeArtistCanvasPayload }
   | { type: "fake_artist_replay"; payload: FakeArtistReplayPayload }
@@ -265,6 +271,12 @@ export function parseWireEvent(raw: unknown): WireEvent | null {
       return { type: "split_vote_prompt", payload: env.payload as SplitVotePromptPayload };
     case S2C.SplitReveal:
       return { type: "split_reveal", payload: env.payload as SplitRevealPayload };
+    case S2C.WordPrompt:
+      return { type: "word_prompt", payload: env.payload as WordPromptPayload };
+    case S2C.WordEntry:
+      return { type: "word_entry", payload: env.payload as WordEntryPayload };
+    case S2C.WordResult:
+      return { type: "word_result", payload: env.payload as WordResultPayload };
     case S2C.FakeArtistTurn:
       return { type: "fake_artist_turn", payload: env.payload as FakeArtistTurnPayload };
     case S2C.FakeArtistCanvas:

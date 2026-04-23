@@ -415,6 +415,63 @@ describe("reduceState", () => {
     expect(withReveal.splitReveal?.achieved).toBe(true);
   });
 
+  it("word storm prompt and result events store accepted words", () => {
+    const withPrompt = reduceState(initialState, {
+      type: "word_prompt",
+      payload: {
+        letters: [{ letter: "c", index: 0 }],
+        letter_seconds: 20,
+        base_points_per_letter: 100,
+        growth_percent: 15,
+      },
+    });
+    expect(withPrompt.wordPrompt?.letters[0]?.letter).toBe("c");
+
+    const withEntry = reduceState(withPrompt, {
+      type: "word_entry",
+      payload: {
+        player_id: "p1",
+        player_name: "Alice",
+        word: "camel",
+        letter: "c",
+        status: "pending",
+        message: "Saved for scoring.",
+      },
+    });
+    expect(withEntry.wordEntries).toHaveLength(1);
+
+    const withResult = reduceState(withEntry, {
+      type: "word_result",
+      payload: {
+        letters: [{ letter: "c", index: 0 }],
+        letter_seconds: 20,
+        base_points_per_letter: 100,
+        growth_percent: 15,
+        accepted_words: ["camel"],
+        results: [
+          {
+            player_id: "p1",
+            player_name: "Alice",
+            entries: [
+              {
+                player_id: "p1",
+                player_name: "Alice",
+                word: "camel",
+                letter: "c",
+                status: "valid",
+                message: "+575 points",
+                points: 575,
+              },
+            ],
+            score: 575,
+            made_up_count: 0,
+          },
+        ],
+      },
+    });
+    expect(withResult.wordResult?.accepted_words).toEqual(["camel"]);
+  });
+
   it("mafia private state only lands for the current player and reveal is global", () => {
     const mine = reduceState({ ...initialState, playerId: "p1" }, {
       type: "mafia_state",

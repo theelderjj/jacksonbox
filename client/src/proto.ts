@@ -17,6 +17,7 @@ export const C2S = {
   SubmitSplitSetup: "submit_split_setup",
   SubmitSplitChoice: "submit_split_choice",
   SubmitFakeArtistGuess: "submit_fake_artist_guess",
+  SubmitWordList: "submit_word_list",
   Ping: "ping",
   SetPause: "set_pause",
   SetPencilsDown: "set_pencils_down",
@@ -52,6 +53,9 @@ export const S2C = {
   PriceResult: "price_result",
   SplitVotePrompt: "split_vote_prompt",
   SplitReveal: "split_reveal",
+  WordPrompt: "word_prompt",
+  WordEntry: "word_entry",
+  WordResult: "word_result",
   FakeArtistTurn: "fake_artist_turn",
   FakeArtistCanvas: "fake_artist_canvas",
   FakeArtistReplay: "fake_artist_replay",
@@ -196,6 +200,9 @@ export type SubmitSplitChoicePayload = {
 export type SubmitFakeArtistGuessPayload = {
   prompt: string;
 };
+export type SubmitWordListPayload = {
+  words: string[];
+};
 
 export type SetPausePayload = {
   paused: boolean;
@@ -319,6 +326,45 @@ export type SplitRevealPayload = {
   show_target: boolean;
   achieved: boolean;
   player_choices: Record<string, string>;
+};
+
+export type WordPromptPayload = {
+  letters: WordLetterWindow[];
+  letter_seconds: number;
+  base_points_per_letter: number;
+  growth_percent: number;
+};
+
+export type WordLetterWindow = {
+  letter: string;
+  index: number;
+};
+
+export type WordEntryPayload = {
+  player_id: string;
+  player_name: string;
+  word: string;
+  letter: string;
+  status: "pending" | "valid" | "invalid" | "duplicate";
+  message: string;
+  points?: number;
+};
+
+export type WordPlayerResult = {
+  player_id: string;
+  player_name: string;
+  entries: WordEntryPayload[];
+  score: number;
+  made_up_count: number;
+};
+
+export type WordResultPayload = {
+  letters: WordLetterWindow[];
+  letter_seconds: number;
+  base_points_per_letter: number;
+  growth_percent: number;
+  results: WordPlayerResult[];
+  accepted_words: string[];
 };
 
 export type FakeArtistTurnPayload = {
