@@ -33,13 +33,15 @@ type actorMsg struct {
 // The fields are copies, but map values alias the originals — tests must not
 // mutate them. Produced exclusively by the actor to avoid data races.
 type stateSnapshot struct {
-	Status    Status
-	PhaseName string
-	PhaseIdx  int
-	Round     int
-	PhaseData map[string]engine.PhaseResult
-	Scores    map[engine.PlayerID]int
-	Players   map[engine.PlayerID]engine.Player
+	Status         Status
+	RoomMode       RoomMode
+	PhaseName      string
+	PhaseIdx       int
+	Round          int
+	SelectedGameID string
+	PhaseData      map[string]engine.PhaseResult
+	Scores         map[engine.PlayerID]int
+	Players        map[engine.PlayerID]engine.Player
 }
 
 type msgKind int

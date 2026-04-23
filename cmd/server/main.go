@@ -3,11 +3,13 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"math/rand"
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -15,15 +17,23 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 
 	"github.com/jj/trivia/internal/auth"
+	"github.com/jj/trivia/internal/engine"
+	"github.com/jj/trivia/internal/games/drawduel"
 	"github.com/jj/trivia/internal/games/drawful"
+	"github.com/jj/trivia/internal/games/fakeartist"
+	"github.com/jj/trivia/internal/games/mafia"
+	"github.com/jj/trivia/internal/games/priceisright"
+	"github.com/jj/trivia/internal/games/reactionduel"
+	"github.com/jj/trivia/internal/games/splitthevote"
 	"github.com/jj/trivia/internal/gateway"
 	"github.com/jj/trivia/internal/obs"
+	"github.com/jj/trivia/internal/reveal"
 	"github.com/jj/trivia/internal/room"
 )
 
 func main() {
 	var (
-		addr     = flag.String("addr", ":8080", "HTTP listen address")
+		addr     = flag.String("addr", ":8787", "HTTP listen address")
 		logLevel = flag.String("log", "info", "log level: debug|info|warn|error")
 		seed     = flag.Int64("seed", time.Now().UnixNano(), "prompt rng seed")
 	)
@@ -32,18 +42,64 @@ func main() {
 	log := obs.New(*logLevel)
 	drawful.Register()
 	drawful.Seed(*seed)
+	drawduel.Register()
+	fakeartist.Register()
+	mafia.Register()
+	priceisright.Register()
+	reactionduel.Register()
+	splitthevote.Register()
 
 	store := auth.NewStore()
 	rng := rand.New(rand.NewSource(*seed))
 
 	mgr, err := room.NewManager(room.Config{
-		Log:     log,
-		Store:   store,
-		Builder: drawful.BuildPhases,
+		Log:   log,
+		Store: store,
+		Builder: func(state *engine.GameState) []engine.Phase {
+			switch state.Settings.GameID {
+			case "draw_duel":
+				return drawduel.BuildPhases(state)
+			case "fake_artist":
+				return fakeartist.BuildPhases(state)
+			case "mafia":
+				return mafia.BuildPhases(state)
+			case "price_is_right":
+				return priceisright.BuildPhases(state)
+			case "reaction_duel":
+				return reactionduel.BuildPhases(state)
+			case "split_vote":
+				return splitthevote.BuildPhases(state)
+			case "jrawful", "":
+				fallthrough
+			default:
+				return drawful.BuildPhases(state)
+			}
+		},
 		Defaults: room.Defaults{
-			ApplyFor:         drawful.DisconnectDefaults(rng),
-			BuildRevealSteps: drawful.BuildRevealSteps,
-			RerollPrompt:     drawful.RerollPrompt,
+			ApplyFor: func(state *engine.GameState, phase string, pid engine.PlayerID) (engine.Input, bool) {
+				switch state.Settings.GameID {
+				case "jrawful", "":
+					return drawful.DisconnectDefaults(rng)(state, phase, pid)
+				default:
+					return engine.Input{}, false
+				}
+			},
+			BuildRevealSteps: func(state *engine.GameState, round int) []reveal.Step {
+				switch state.Settings.GameID {
+				case "jrawful", "":
+					return drawful.BuildRevealSteps(state, round)
+				default:
+					return nil
+				}
+			},
+			RerollPrompt: func(state *engine.GameState, promptPhase string, playerID engine.PlayerID) (string, []engine.Event, error) {
+				switch state.Settings.GameID {
+				case "jrawful", "":
+					return drawful.RerollPrompt(state, promptPhase, playerID)
+				default:
+					return "", nil, nil
+				}
+			},
 		},
 	})
 	if err != nil {
@@ -67,6 +123,31 @@ func main() {
 		// the place to report per-room health.
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
+	})
+	r.Get("/api/lobby-config", func(w http.ResponseWriter, req *http.Request) {
+		gameID := req.URL.Query().Get("game_id")
+		if gameID == "" {
+			gameID = "mafia"
+		}
+		if gameID != "mafia" {
+			http.Error(w, "unsupported game_id", http.StatusBadRequest)
+			return
+		}
+		rawPlayers := req.URL.Query().Get("players")
+		if rawPlayers == "" {
+			rawPlayers = req.URL.Query().Get("player_count")
+		}
+		playerCount := 6
+		if rawPlayers != "" {
+			parsed, err := strconv.Atoi(rawPlayers)
+			if err != nil || parsed < 1 {
+				http.Error(w, "players must be a positive integer", http.StatusBadRequest)
+				return
+			}
+			playerCount = parsed
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(mafia.BuildLobbyConfig(playerCount, nil))
 	})
 	r.Get("/ws", gw.Handle)
 

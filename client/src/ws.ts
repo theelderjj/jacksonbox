@@ -10,10 +10,22 @@
 
 import {
   C2S,
+  type DrawDuelRevealPayload,
+  type DrawDuelRoundPayload,
+  type MafiaRevealPayload,
+  type MafiaStatePayload,
+  type FakeArtistCanvasPayload,
+  type FakeArtistReplayPayload,
+  type FakeArtistRevealPayload,
+  type FakeArtistTurnPayload,
+  type PricePromptPayload,
+  type PriceResultPayload,
   PROTOCOL_VERSION,
   type DrawingsPayload,
   type Envelope,
   type ErrorPayload,
+  type GameCatalogPayload,
+  type GameSelectedPayload,
   type JoinAckPayload,
   type LeaderChangePayload,
   type PauseStatePayload,
@@ -21,6 +33,9 @@ import {
   type PromptIssuedPayload,
   type RevealPayload,
   type RevealStepPayload,
+  type ReactionResultPayload,
+  type SplitRevealPayload,
+  type SplitVotePromptPayload,
   type RoomEvictingPayload,
   type RoomState,
   type RoundResultPayload,
@@ -45,6 +60,21 @@ export type WireEvent =
   | { type: "room_evicting"; payload: RoomEvictingPayload }
   | { type: "pause_state"; payload: PauseStatePayload }
   | { type: "leader_change"; payload: LeaderChangePayload }
+  | { type: "game_catalog"; payload: GameCatalogPayload }
+  | { type: "game_selected"; payload: GameSelectedPayload }
+  | { type: "reaction_result"; payload: ReactionResultPayload }
+  | { type: "price_prompt"; payload: PricePromptPayload }
+  | { type: "price_result"; payload: PriceResultPayload }
+  | { type: "split_vote_prompt"; payload: SplitVotePromptPayload }
+  | { type: "split_reveal"; payload: SplitRevealPayload }
+  | { type: "fake_artist_turn"; payload: FakeArtistTurnPayload }
+  | { type: "fake_artist_canvas"; payload: FakeArtistCanvasPayload }
+  | { type: "fake_artist_replay"; payload: FakeArtistReplayPayload }
+  | { type: "fake_artist_reveal"; payload: FakeArtistRevealPayload }
+  | { type: "draw_duel_round"; payload: DrawDuelRoundPayload }
+  | { type: "draw_duel_reveal"; payload: DrawDuelRevealPayload }
+  | { type: "mafia_state"; payload: MafiaStatePayload }
+  | { type: "mafia_reveal"; payload: MafiaRevealPayload }
   | { type: "error"; payload: ErrorPayload };
 
 type Listener = (ev: WireEvent) => void;
@@ -221,6 +251,36 @@ export function parseWireEvent(raw: unknown): WireEvent | null {
       return { type: "pause_state", payload: env.payload as PauseStatePayload };
     case S2C.LeaderChange:
       return { type: "leader_change", payload: env.payload as LeaderChangePayload };
+    case S2C.GameCatalog:
+      return { type: "game_catalog", payload: env.payload as GameCatalogPayload };
+    case S2C.GameSelected:
+      return { type: "game_selected", payload: env.payload as GameSelectedPayload };
+    case S2C.ReactionResult:
+      return { type: "reaction_result", payload: env.payload as ReactionResultPayload };
+    case S2C.PricePrompt:
+      return { type: "price_prompt", payload: env.payload as PricePromptPayload };
+    case S2C.PriceResult:
+      return { type: "price_result", payload: env.payload as PriceResultPayload };
+    case S2C.SplitVotePrompt:
+      return { type: "split_vote_prompt", payload: env.payload as SplitVotePromptPayload };
+    case S2C.SplitReveal:
+      return { type: "split_reveal", payload: env.payload as SplitRevealPayload };
+    case S2C.FakeArtistTurn:
+      return { type: "fake_artist_turn", payload: env.payload as FakeArtistTurnPayload };
+    case S2C.FakeArtistCanvas:
+      return { type: "fake_artist_canvas", payload: env.payload as FakeArtistCanvasPayload };
+    case S2C.FakeArtistReplay:
+      return { type: "fake_artist_replay", payload: env.payload as FakeArtistReplayPayload };
+    case S2C.FakeArtistReveal:
+      return { type: "fake_artist_reveal", payload: env.payload as FakeArtistRevealPayload };
+    case S2C.DrawDuelRound:
+      return { type: "draw_duel_round", payload: env.payload as DrawDuelRoundPayload };
+    case S2C.DrawDuelReveal:
+      return { type: "draw_duel_reveal", payload: env.payload as DrawDuelRevealPayload };
+    case S2C.MafiaState:
+      return { type: "mafia_state", payload: env.payload as MafiaStatePayload };
+    case S2C.MafiaReveal:
+      return { type: "mafia_reveal", payload: env.payload as MafiaRevealPayload };
     case S2C.Error:
       return { type: "error", payload: env.payload as ErrorPayload };
     case S2C.Pong:

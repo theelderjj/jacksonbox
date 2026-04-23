@@ -11,12 +11,12 @@ Jrawful-style realtime drawing-and-bluffing game. Go backend (actor model) + Vit
 ```bash
 # Backend
 go test ./...
-go run ./cmd/server     # default :8080
+go run ./cmd/server     # default :8787
 
 # Client
 cd client
 npm install             # first time only
-npm run dev             # Vite dev server with /ws proxy to :8080
+npm run dev             # Vite dev server with /ws proxy to :8787
 ```
 
 No Docker, no CI yet. Server is stateless-in-memory — restart resets everything.

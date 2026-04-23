@@ -7,15 +7,24 @@
 // source of truth — we never optimistically flip our own paused/pencilsDown
 // locally, we wait for pause_state to echo back.
 
+import { useEffect, useState } from "react";
 import { C2S } from "../proto";
 import { client, useGameState } from "../store";
 
 export default function LeaderControls(): JSX.Element | null {
   const g = useGameState();
+  const [menuOpen, setMenuOpen] = useState(false);
 
   // Hide in lobby (no meaningful state to pause) and in game_end. Empty
   // phase → mid-join; also hide. Unknown/empty leaderId → also hide.
   const inGame = g.phase !== "" && g.phase !== "game_end" && !g.phase.startsWith("lobby");
+
+  useEffect(() => {
+    if (!g.paused) {
+      setMenuOpen(false);
+    }
+  }, [g.paused]);
+
   if (!inGame || !g.leaderId) return null;
 
   const iAmLeader = g.leaderId === g.playerId;
@@ -31,6 +40,10 @@ export default function LeaderControls(): JSX.Element | null {
   }
   function advanceReveal(): void {
     client.send(C2S.AdvanceReveal, {});
+  }
+  function returnToPicker(): void {
+    setMenuOpen(false);
+    client.send(C2S.ReturnToPicker, {});
   }
 
   return (
@@ -65,6 +78,25 @@ export default function LeaderControls(): JSX.Element | null {
               <button onClick={togglePencils}>
                 {g.pencilsDown ? "Pencils up" : "Pencils down"}
               </button>
+              {g.paused && (
+                <div className="leader-menu-wrap">
+                  <button
+                    type="button"
+                    aria-label="Game menu"
+                    aria-expanded={menuOpen}
+                    onClick={() => setMenuOpen((open) => !open)}
+                  >
+                    ⚙
+                  </button>
+                  {menuOpen && (
+                    <div className="leader-menu card">
+                      <button type="button" onClick={returnToPicker}>
+                        Exit to picker
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
             </>
           )}
         </div>

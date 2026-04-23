@@ -11,6 +11,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:ui": "vitest --ui",
+    "build:demo-gifs": "python ../scripts/build_all_demo_gifs.py",
     "e2e": "playwright test",
     "e2e:ui": "playwright test --ui"
   },

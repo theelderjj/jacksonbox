@@ -1,5 +1,8 @@
 .gocache/
 results.jsonl
+__pycache__/
+.codex-*.html
+.codex-*.log
 
 # Client artifacts
 client/node_modules/
@@ -10,6 +13,7 @@ client/coverage/
 client/test-results/
 client/playwright-report/
 client/playwright/.cache/
+client/go.mod
 
 # OS/editor
 .DS_Store

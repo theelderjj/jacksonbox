@@ -12,12 +12,20 @@ export const C2S = {
   SubmitDrawing: "submit_drawing",
   SubmitFakePrompt: "submit_fake_prompt",
   SubmitVote: "submit_vote",
+  SubmitTap: "submit_tap",
+  SubmitPriceGuess: "submit_price_guess",
+  SubmitSplitSetup: "submit_split_setup",
+  SubmitSplitChoice: "submit_split_choice",
+  SubmitFakeArtistGuess: "submit_fake_artist_guess",
   Ping: "ping",
   SetPause: "set_pause",
   SetPencilsDown: "set_pencils_down",
   AdvanceReveal: "advance_reveal",
   UpdateSettings: "update_settings",
   RerollPrompt: "reroll_prompt",
+  SelectGame: "select_game",
+  StartGame: "start_game",
+  ReturnToPicker: "return_to_picker",
 } as const;
 
 export const S2C = {
@@ -37,6 +45,21 @@ export const S2C = {
   VotingChoices: "voting_choices",
   PauseState: "pause_state",
   LeaderChange: "leader_change",
+  GameCatalog: "game_catalog",
+  GameSelected: "game_selected",
+  ReactionResult: "reaction_result",
+  PricePrompt: "price_prompt",
+  PriceResult: "price_result",
+  SplitVotePrompt: "split_vote_prompt",
+  SplitReveal: "split_reveal",
+  FakeArtistTurn: "fake_artist_turn",
+  FakeArtistCanvas: "fake_artist_canvas",
+  FakeArtistReplay: "fake_artist_replay",
+  FakeArtistReveal: "fake_artist_reveal",
+  DrawDuelRound: "draw_duel_round",
+  DrawDuelReveal: "draw_duel_reveal",
+  MafiaState: "mafia_state",
+  MafiaReveal: "mafia_reveal",
 } as const;
 
 export type Envelope<P = unknown> = {
@@ -57,6 +80,7 @@ export type PlayerInfo = {
 export type RoomState = {
   room_id: string;
   status: string;
+  room_mode?: string;
   phase?: string;
   round: number;
   players: PlayerInfo[];
@@ -67,14 +91,29 @@ export type RoomState = {
   pencils_down?: boolean;
   remaining_ms?: number;
   settings: SettingsState;
+  selected_game_id?: string;
+  game_catalog?: GameDefinition[];
 };
 
 export type SettingsState = {
+  game_id?: string;
   round_count: number;
   generated_fake_count: number;
   drawing_seconds: number;
   fake_prompt_seconds: number;
   voting_seconds: number;
+  game_options?: Record<string, unknown>;
+};
+
+export type GameDefinition = {
+  id: string;
+  name: string;
+  summary: string;
+  min_players: number;
+  max_players: number;
+  estimated_minutes: number;
+  tags: string[];
+  status: string;
 };
 
 export type JoinAckPayload = {
@@ -142,6 +181,22 @@ export type SubmitVotePayload = {
   choice_id: string;
 };
 
+export type SubmitTapPayload = Record<string, never>;
+export type SubmitPriceGuessPayload = {
+  guess_cents: number;
+};
+export type SubmitSplitSetupPayload = {
+  prompt: string;
+  option_a: string;
+  option_b: string;
+};
+export type SubmitSplitChoicePayload = {
+  choice_id: "A" | "B";
+};
+export type SubmitFakeArtistGuessPayload = {
+  prompt: string;
+};
+
 export type SetPausePayload = {
   paused: boolean;
 };
@@ -153,14 +208,19 @@ export type SetPencilsDownPayload = {
 export type AdvanceRevealPayload = Record<string, never>;
 
 export type UpdateSettingsPayload = {
+  game_id?: string;
   round_count: number;
   generated_fake_count: number;
   drawing_seconds: number;
   fake_prompt_seconds: number;
   voting_seconds: number;
+  game_options?: Record<string, unknown>;
 };
 
 export type RerollPromptPayload = Record<string, never>;
+export type SelectGamePayload = { game_id: string };
+export type StartGamePayload = Record<string, never>;
+export type ReturnToPickerPayload = Record<string, never>;
 
 export type RevealAward = {
   player_id: string;
@@ -188,6 +248,188 @@ export type PauseStatePayload = {
 
 export type LeaderChangePayload = {
   leader_id: string;
+};
+
+export type GameCatalogPayload = {
+  games: GameDefinition[];
+};
+
+export type GameSelectedPayload = {
+  game_id: string;
+};
+
+export type ReactionPlayerResult = {
+  player_id: string;
+  player_name: string;
+  false_start: boolean;
+  reaction_ms?: number;
+  rank?: number;
+  points: number;
+};
+
+export type ReactionResultPayload = {
+  round: number;
+  results: ReactionPlayerResult[];
+};
+
+export type PricePromptPayload = {
+  round: number;
+  product_id: string;
+  product_name: string;
+  image_url: string;
+  threshold_cents: number;
+  threshold_mode: string;
+  threshold_base_cents: number;
+};
+
+export type PriceResultPayload = {
+  round: number;
+  product_id: string;
+  product_name: string;
+  image_url: string;
+  actual_price_cents: number;
+  threshold_cents: number;
+  threshold_mode: string;
+  guesses: Record<string, number>;
+  winner_ids: string[];
+};
+
+export type SplitVotePromptPayload = {
+  round: number;
+  splitter_id: string;
+  splitter_name: string;
+  prompt: string;
+  option_a: string;
+  option_b: string;
+  show_target: boolean;
+};
+
+export type SplitRevealPayload = {
+  round: number;
+  splitter_id: string;
+  splitter_name: string;
+  prompt: string;
+  option_a: string;
+  option_b: string;
+  count_a: number;
+  count_b: number;
+  target_a: number;
+  target_b: number;
+  target_mode: string;
+  show_target: boolean;
+  achieved: boolean;
+  player_choices: Record<string, string>;
+};
+
+export type FakeArtistTurnPayload = {
+  round: number;
+  turn: number;
+  drawer_id: string;
+  drawer_name: string;
+  color: string;
+  phase: "countdown" | "draw";
+  countdown_seconds?: number;
+  format?: "strokes" | "png";
+  data?: string;
+};
+
+export type FakeArtistCanvasPayload = {
+  round: number;
+  turn: number;
+  drawer_id: string;
+  drawer_name: string;
+  color: string;
+  format: "strokes" | "png";
+  data: string;
+};
+
+export type FakeArtistReplaySegment = {
+  turn: number;
+  drawer_id: string;
+  drawer_name: string;
+  color: string;
+  format: "strokes" | "png";
+  data: string;
+};
+
+export type FakeArtistReplayPayload = {
+  round: number;
+  replay_count: number;
+  continuous_replay: boolean;
+  segments: FakeArtistReplaySegment[];
+};
+
+export type FakeArtistRevealPayload = {
+  round: number;
+  fake_id: string;
+  fake_name: string;
+  prompt: string;
+  accused_id?: string;
+  accused_name?: string;
+  majority_caught: boolean;
+  fake_guess?: string;
+  fake_guessed_prompt: boolean;
+  fake_wins: boolean;
+  votes: Record<string, string>;
+  winners: string[];
+};
+
+export type DrawDuelRoundPayload = {
+  round: number;
+  prompt: string;
+  artist_a_id: string;
+  artist_a_name: string;
+  artist_b_id: string;
+  artist_b_name: string;
+  judge_ids: string[];
+};
+
+export type DrawDuelRevealPayload = {
+  round: number;
+  prompt: string;
+  artist_a_id: string;
+  artist_a_name: string;
+  artist_b_id: string;
+  artist_b_name: string;
+  drawings: DrawingSummary[];
+  votes_by_judge: Record<string, string>;
+  vote_count_by_drawing: Record<string, number>;
+  winner_drawing_id?: string;
+  winner_artist_id?: string;
+  winner_artist_name?: string;
+  tied: boolean;
+};
+
+export type MafiaPlayerState = {
+  player_id: string;
+  name: string;
+  alive: boolean;
+};
+
+export type MafiaStatePayload = {
+  player_id: string;
+  round: number;
+  phase: string;
+  your_role: string;
+  team_ids: string[];
+  alive_players: MafiaPlayerState[];
+  can_act: boolean;
+  target_ids: string[];
+  note?: string;
+  locked_in?: boolean;
+};
+
+export type MafiaRevealPayload = {
+  round: number;
+  phase: string;
+  deaths?: string[];
+  eliminated_id?: string;
+  eliminated_name?: string;
+  eliminated_role?: string;
+  votes?: Record<string, string>;
+  alive_ids: string[];
+  winner?: string;
+  role_map?: Record<string, string>;
 };
 
 // Stroke data model used by the drawing canvas. Server validates: coords

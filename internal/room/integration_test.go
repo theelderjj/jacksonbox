@@ -16,8 +16,10 @@ package room
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -26,8 +28,15 @@ import (
 
 	"github.com/jj/trivia/internal/auth"
 	"github.com/jj/trivia/internal/engine"
+	"github.com/jj/trivia/internal/games/drawduel"
 	"github.com/jj/trivia/internal/games/drawful"
+	"github.com/jj/trivia/internal/games/fakeartist"
+	"github.com/jj/trivia/internal/games/mafia"
+	"github.com/jj/trivia/internal/games/priceisright"
+	"github.com/jj/trivia/internal/games/reactionduel"
+	"github.com/jj/trivia/internal/games/splitthevote"
 	"github.com/jj/trivia/internal/gateway"
+	platformcatalog "github.com/jj/trivia/internal/platform/catalog"
 	"github.com/jj/trivia/internal/primitives"
 	"github.com/jj/trivia/internal/proto"
 )
@@ -93,6 +102,40 @@ func (d *drainCapture) waitForType(t *testing.T, typ string, timeout time.Durati
 	return proto.Envelope{}
 }
 
+func (d *drainCapture) phaseChanges() []string {
+	frames := d.envelopes()
+	out := make([]string, 0, len(frames))
+	for _, env := range frames {
+		if env.Type != proto.S2CPhaseChange {
+			continue
+		}
+		var payload proto.PhaseChangePayload
+		if err := json.Unmarshal(env.Payload, &payload); err != nil {
+			continue
+		}
+		out = append(out, payload.Phase)
+	}
+	return out
+}
+
+func waitPhaseSequence(t *testing.T, d *drainCapture, expected []string, timeout time.Duration) []string {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	var got []string
+	for time.Now().Before(deadline) {
+		got = d.phaseChanges()
+		if slices.Equal(got, expected) {
+			return got
+		}
+		if len(got) >= len(expected) && slices.Equal(got[:len(expected)], expected) {
+			return got[:len(expected)]
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("timeout waiting for phase sequence\nwant: %+v\ngot:  %+v", expected, got)
+	return nil
+}
+
 // testPhaseBuilder returns a single-round Jrawful phase list with short
 // timers, so "timeout" tests complete in hundreds of ms and "happy path"
 // tests don't risk hitting the timer. We don't use drawful.BuildPhases
@@ -151,6 +194,61 @@ func newPlayer(t *testing.T, r *Room, name string) (*gateway.Conn, *drainCapture
 	return conn, dc, reply.PlayerID, reply.Token
 }
 
+func playableGameBuilder(state *engine.GameState) []engine.Phase {
+	switch state.Settings.GameID {
+	case "draw_duel":
+		return drawduel.BuildPhases(state)
+	case "fake_artist":
+		return fakeartist.BuildPhases(state)
+	case "mafia":
+		return mafia.BuildPhases(state)
+	case "price_is_right":
+		return priceisright.BuildPhases(state)
+	case "reaction_duel":
+		return reactionduel.BuildPhases(state)
+	case "split_vote":
+		return splitthevote.BuildPhases(state)
+	case "jrawful", "":
+		fallthrough
+	default:
+		return drawful.BuildPhases(state)
+	}
+}
+
+func shrunkPlayableGameBuilder(state *engine.GameState) []engine.Phase {
+	phases := playableGameBuilder(state)
+	out := make([]engine.Phase, len(phases))
+	copy(out, phases)
+	for idx := range out {
+		if out[idx].Duration > 0 || startsWith(out[idx].Name, "leaderboard") {
+			out[idx].Duration = 50 * time.Millisecond
+		}
+	}
+	return out
+}
+
+func expectedPlayablePhases(gameID string, playerCount int, settings engine.GameSettings) []string {
+	state := &engine.GameState{
+		Settings: settings,
+		Players:  map[engine.PlayerID]*engine.Player{},
+	}
+	for idx := 0; idx < playerCount; idx++ {
+		pid := engine.PlayerID("player-" + uuid.NewString())
+		state.Players[pid] = &engine.Player{
+			ID:        pid,
+			Name:      "Player",
+			Connected: true,
+		}
+	}
+	state.Settings.GameID = gameID
+	phases := playableGameBuilder(state)
+	names := make([]string, 0, len(phases))
+	for _, phase := range phases {
+		names = append(names, phase.Name)
+	}
+	return names
+}
+
 // postEnv sends an envelope to the room. Fatals on channel saturation.
 func postEnv(t *testing.T, r *Room, conn *gateway.Conn, typ string, payload any) {
 	t.Helper()
@@ -181,6 +279,24 @@ func waitPhase(t *testing.T, r *Room, wantPhase string, timeout time.Duration) s
 		time.Sleep(5 * time.Millisecond)
 	}
 	t.Fatalf("timeout waiting for phase %q (last observed: %q)", wantPhase, last.PhaseName)
+	return stateSnapshot{}
+}
+
+func waitRoomMode(t *testing.T, r *Room, wantMode RoomMode, timeout time.Duration) stateSnapshot {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	var last stateSnapshot
+	for time.Now().Before(deadline) {
+		snap, ok := r.snapshotForTest()
+		if ok {
+			last = snap
+			if snap.RoomMode == wantMode {
+				return snap
+			}
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("timeout waiting for room mode %q (last observed: %q)", wantMode, last.RoomMode)
 	return stateSnapshot{}
 }
 
@@ -316,6 +432,361 @@ func TestIntegration_FullJrawfulRound(t *testing.T) {
 	connA.Close(proto.CloseGoingAway, "test done")
 	connB.Close(proto.CloseGoingAway, "test done")
 	connC.Close(proto.CloseGoingAway, "test done")
+}
+
+func TestIntegration_SplitVoteTwoPlayerScores(t *testing.T) {
+	t.Log("Scenario: Alice and Bob join, the leader selects Split the Vote, both ready, Alice sets up the round, Bob is the only voter, and Bob hits the one-voter target.")
+	t.Log("Expected: Alice cannot vote, Bob alone determines the split, reveal resolves as achieved, and game_end carries Alice=1500 / Bob=500.")
+
+	drawful.Register()
+	splitthevote.Register()
+	builder := func(state *engine.GameState) []engine.Phase {
+		switch state.Settings.GameID {
+		case "split_vote":
+			return splitthevote.BuildPhases(state)
+		default:
+			return drawful.BuildPhases(state)
+		}
+	}
+	r, _ := newTestRoom(t, "SPLIT", false, builder)
+
+	connA, capA, pidA, _ := newPlayer(t, r, "alice")
+	connB, capB, pidB, _ := newPlayer(t, r, "bob")
+
+	postEnv(t, r, connA, proto.C2SSelectGame, proto.SelectGamePayload{GameID: "split_vote"})
+	postEnv(t, r, connA, proto.C2SReady, proto.ReadyPayload{Ready: true})
+	postEnv(t, r, connB, proto.C2SReady, proto.ReadyPayload{Ready: true})
+	postEnv(t, r, connA, proto.C2SStartGame, proto.StartGamePayload{})
+
+	waitPhase(t, r, "split_setup_r1", 2*time.Second)
+	postEnv(t, r, connA, proto.C2SSubmitSplitSetup, proto.SubmitSplitSetupPayload{
+		Prompt:  "Which side wins?",
+		OptionA: "Left",
+		OptionB: "Right",
+	})
+
+	waitPhase(t, r, "split_vote_r1", 2*time.Second)
+	postEnv(t, r, connB, proto.C2SSubmitSplitChoice, proto.SubmitSplitChoicePayload{ChoiceID: "B"})
+
+	waitPhase(t, r, "split_reveal_r1", 2*time.Second)
+	round := capA.waitForType(t, proto.S2CRoundResult, 2*time.Second)
+
+	var roundPayload struct {
+		Scores map[string]int `json:"scores"`
+	}
+	if err := json.Unmarshal(round.Payload, &roundPayload); err != nil {
+		t.Fatalf("decode round_result: %v", err)
+	}
+	if got := roundPayload.Scores[string(pidA)]; got != 1500 {
+		t.Fatalf("alice round_result score: want 1500, got %d (all=%+v)", got, roundPayload.Scores)
+	}
+	if got := roundPayload.Scores[string(pidB)]; got != 500 {
+		t.Fatalf("bob round_result score: want 500, got %d (all=%+v)", got, roundPayload.Scores)
+	}
+
+	end := capA.waitForType(t, proto.S2CGameEnd, 15*time.Second)
+
+	var payload struct {
+		Scores map[string]int `json:"scores"`
+	}
+	if err := json.Unmarshal(end.Payload, &payload); err != nil {
+		t.Fatalf("decode game_end: %v", err)
+	}
+	if got := payload.Scores[string(pidA)]; got != 1500 {
+		t.Fatalf("alice score: want 1500, got %d (all=%+v)", got, payload.Scores)
+	}
+	if got := payload.Scores[string(pidB)]; got != 500 {
+		t.Fatalf("bob score: want 500, got %d (all=%+v)", got, payload.Scores)
+	}
+
+	_ = capB.waitForType(t, proto.S2CGameEnd, time.Second)
+
+	connA.Close(proto.CloseGoingAway, "test done")
+	connB.Close(proto.CloseGoingAway, "test done")
+}
+
+func TestIntegration_PriceIsRightClosestWithoutGoingOver(t *testing.T) {
+	t.Log("Scenario: 3 players join, the leader selects Price is Right, everyone readies, then all three submit guesses for the same listing.")
+	t.Log("Expected: the closest guess without going over wins the round and receives 1000 points.")
+
+	drawful.Register()
+	priceisright.Register()
+	builder := func(state *engine.GameState) []engine.Phase {
+		switch state.Settings.GameID {
+		case "price_is_right":
+			return priceisright.BuildPhases(state)
+		default:
+			return drawful.BuildPhases(state)
+		}
+	}
+	r, _ := newTestRoom(t, "PRICE", false, builder)
+
+	connA, capA, pidA, _ := newPlayer(t, r, "alice")
+	connB, _, pidB, _ := newPlayer(t, r, "bob")
+	connC, _, pidC, _ := newPlayer(t, r, "cara")
+
+	postEnv(t, r, connA, proto.C2SSelectGame, proto.SelectGamePayload{GameID: "price_is_right"})
+	postEnv(t, r, connA, proto.C2SUpdateSettings, proto.UpdateSettingsPayload{
+		RoundCount:         1,
+		GeneratedFakeCount: 0,
+		DrawingSeconds:     60,
+		FakePromptSeconds:  90,
+		VotingSeconds:      10,
+		GameOptions: map[string]any{
+			"minimum_price_dollars": 5,
+			"threshold_mode":        "fixed",
+		},
+	})
+	postEnv(t, r, connA, proto.C2SReady, proto.ReadyPayload{Ready: true})
+	postEnv(t, r, connB, proto.C2SReady, proto.ReadyPayload{Ready: true})
+	postEnv(t, r, connC, proto.C2SReady, proto.ReadyPayload{Ready: true})
+	postEnv(t, r, connA, proto.C2SStartGame, proto.StartGamePayload{})
+
+	snap := waitPhase(t, r, "price_guess_r1", 3*time.Second)
+	prompt, ok := getFromSnapshot[priceisright.PromptResult](snap, "price_prompt_r1")
+	if !ok {
+		t.Fatal("missing price prompt result")
+	}
+
+	postEnv(t, r, connA, proto.C2SSubmitPriceGuess, proto.SubmitPriceGuessPayload{GuessCents: prompt.ActualPriceCents - 100})
+	postEnv(t, r, connB, proto.C2SSubmitPriceGuess, proto.SubmitPriceGuessPayload{GuessCents: prompt.ActualPriceCents + 100})
+	postEnv(t, r, connC, proto.C2SSubmitPriceGuess, proto.SubmitPriceGuessPayload{GuessCents: prompt.ActualPriceCents / 2})
+
+	end := capA.waitForType(t, proto.S2CGameEnd, 10*time.Second)
+	var payload struct {
+		Scores map[string]int `json:"scores"`
+	}
+	if err := json.Unmarshal(end.Payload, &payload); err != nil {
+		t.Fatalf("decode game_end: %v", err)
+	}
+	if got := payload.Scores[string(pidA)]; got != 1000 {
+		t.Fatalf("alice score: want 1000, got %d (scores=%+v)", got, payload.Scores)
+	}
+	if got := payload.Scores[string(pidB)]; got != 0 {
+		t.Fatalf("bob score: want 0, got %d (scores=%+v)", got, payload.Scores)
+	}
+	if got := payload.Scores[string(pidC)]; got != 0 {
+		t.Fatalf("cara score: want 0, got %d (scores=%+v)", got, payload.Scores)
+	}
+
+	connA.Close(proto.CloseGoingAway, "test done")
+	connB.Close(proto.CloseGoingAway, "test done")
+	connC.Close(proto.CloseGoingAway, "test done")
+}
+
+func TestIntegration_MafiaTownEliminatesTheMafia(t *testing.T) {
+	t.Log("Scenario: 6 players join, the leader selects Mafia, everyone readies up, night actions resolve, the room nominates a suspect, and the town votes out the single Mafia member on day 1.")
+	t.Log("Expected: game_end fires after the first day reveal, every non-mafia player has 1000 points, and the mafia player has 0.")
+
+	drawful.Register()
+	mafia.Register()
+	builder := func(state *engine.GameState) []engine.Phase {
+		switch state.Settings.GameID {
+		case "mafia":
+			return mafia.BuildPhases(state)
+		default:
+			return drawful.BuildPhases(state)
+		}
+	}
+	r, _ := newTestRoom(t, "MAFIA", false, builder)
+
+	names := []string{"alice", "bob", "cara", "drew", "eli", "fran"}
+	conns := make(map[string]*gateway.Conn, len(names))
+	var leader *gateway.Conn
+	var leaderCap *drainCapture
+	for idx, name := range names {
+		conn, cap, _, _ := newPlayer(t, r, name)
+		conns[name] = conn
+		if idx == 0 {
+			leader = conn
+			leaderCap = cap
+		}
+	}
+
+	postEnv(t, r, leader, proto.C2SSelectGame, proto.SelectGamePayload{GameID: "mafia"})
+	postEnv(t, r, leader, proto.C2SUpdateSettings, proto.UpdateSettingsPayload{
+		RoundCount:         1,
+		GeneratedFakeCount: 0,
+		DrawingSeconds:     10,
+		FakePromptSeconds:  10,
+		VotingSeconds:      10,
+	})
+	for _, name := range names {
+		postEnv(t, r, conns[name], proto.C2SReady, proto.ReadyPayload{Ready: true})
+	}
+	postEnv(t, r, leader, proto.C2SStartGame, proto.StartGamePayload{})
+
+	snap := waitPhase(t, r, "mafia_night_collect_r1", 12*time.Second)
+	roleResult, ok := getFromSnapshot[mafia.RoleAssignmentResult](snap, "mafia_role_assign")
+	if !ok {
+		t.Fatal("missing mafia role assignment")
+	}
+	if len(roleResult.MafiaIDs) != 1 {
+		t.Fatalf("expected 1 mafia in a 6-player room, got %d", len(roleResult.MafiaIDs))
+	}
+
+	mafiaID := roleResult.MafiaIDs[0]
+	targetID := ""
+	for _, playerID := range roleResult.Order {
+		if roleResult.Roles[playerID] == "citizen" {
+			targetID = playerID
+			break
+		}
+	}
+	if targetID == "" {
+		t.Fatal("missing citizen target for the night")
+	}
+
+	for _, playerID := range roleResult.Order {
+		switch roleResult.Roles[playerID] {
+		case "mafia":
+			postEnv(t, r, conns[roleResult.Names[playerID]], proto.C2SSubmitVote, proto.SubmitVotePayload{
+				DrawingID: "mafia_night",
+				ChoiceID:  targetID,
+			})
+		case "doctor":
+			postEnv(t, r, conns[roleResult.Names[playerID]], proto.C2SSubmitVote, proto.SubmitVotePayload{
+				DrawingID: "mafia_night",
+				ChoiceID:  targetID,
+			})
+		case "detective":
+			postEnv(t, r, conns[roleResult.Names[playerID]], proto.C2SSubmitVote, proto.SubmitVotePayload{
+				DrawingID: "mafia_night",
+				ChoiceID:  mafiaID,
+			})
+		}
+	}
+
+	waitPhase(t, r, "mafia_day_nominate_r1", 24*time.Second)
+	for _, playerID := range roleResult.Order {
+		conn := conns[roleResult.Names[playerID]]
+		choice := mafiaID
+		if playerID == mafiaID {
+			choice = targetID
+		}
+		postEnv(t, r, conn, proto.C2SSubmitVote, proto.SubmitVotePayload{
+			DrawingID: "mafia_nominate",
+			ChoiceID:  choice,
+		})
+	}
+
+	waitPhase(t, r, "mafia_day_vote_r1", 24*time.Second)
+	for _, playerID := range roleResult.Order {
+		conn := conns[roleResult.Names[playerID]]
+		postEnv(t, r, conn, proto.C2SSubmitVote, proto.SubmitVotePayload{
+			DrawingID: "mafia_day",
+			ChoiceID:  mafiaID,
+		})
+	}
+
+	end := leaderCap.waitForType(t, proto.S2CGameEnd, 12*time.Second)
+	var payload struct {
+		Scores map[string]int `json:"scores"`
+	}
+	if err := json.Unmarshal(end.Payload, &payload); err != nil {
+		t.Fatalf("decode game_end: %v", err)
+	}
+
+	for _, playerID := range roleResult.Order {
+		got := payload.Scores[playerID]
+		want := 1000
+		if playerID == mafiaID {
+			want = 0
+		}
+		if got != want {
+			t.Fatalf("player %s (%s): want %d, got %d (scores=%+v)", roleResult.Names[playerID], roleResult.Roles[playerID], want, got, payload.Scores)
+		}
+	}
+
+	for _, conn := range conns {
+		conn.Close(proto.CloseGoingAway, "test done")
+	}
+}
+
+func TestIntegration_PlayableGamesPhaseSweep10Players(t *testing.T) {
+	t.Log("Scenario: every currently playable picker game launches inside a 10-player room with phase timers compressed for integration coverage.")
+	t.Log("Expected: each game emits its full phase_change sequence in order, reaches game_end, and does not surface server errors to the leader.")
+
+	drawful.Register()
+	drawduel.Register()
+	fakeartist.Register()
+	mafia.Register()
+	priceisright.Register()
+	reactionduel.Register()
+	splitthevote.Register()
+
+	settings := engine.GameSettings{
+		RoundCount:         1,
+		GeneratedFakeCount: 0,
+		DrawingSeconds:     1,
+		FakePromptSeconds:  1,
+		VotingSeconds:      1,
+		GameOptions: map[string]any{
+			"countdown_seconds":      1,
+			"minimum_price_dollars":  5,
+			"threshold_mode":         "fixed",
+			"target_mode":            "strict_split",
+			"split_authoring_mode":   "splitter_prompt_and_options",
+			"show_target_to_players": false,
+		},
+	}
+
+	for _, game := range platformcatalog.DefaultCatalog() {
+		if game.Status != platformcatalog.GameStatusAvailable {
+			continue
+		}
+		game := game
+		t.Run(game.ID, func(t *testing.T) {
+			playerCount := min(10, game.MaxPlayers)
+			r, _ := newTestRoom(t, "SWEEP-"+game.ID, false, shrunkPlayableGameBuilder)
+
+			conns := make([]*gateway.Conn, 0, playerCount)
+			var leaderConn *gateway.Conn
+			var leaderCap *drainCapture
+			for idx := 0; idx < playerCount; idx++ {
+				conn, cap, _, _ := newPlayer(t, r, fmt.Sprintf("%s-%02d", game.ID, idx+1))
+				conns = append(conns, conn)
+				if idx == 0 {
+					leaderConn = conn
+					leaderCap = cap
+				}
+			}
+			t.Cleanup(func() {
+				for _, conn := range conns {
+					conn.Close(proto.CloseGoingAway, "test done")
+				}
+			})
+
+			postEnv(t, r, leaderConn, proto.C2SSelectGame, proto.SelectGamePayload{GameID: game.ID})
+			postEnv(t, r, leaderConn, proto.C2SUpdateSettings, proto.UpdateSettingsPayload{
+				RoundCount:         settings.RoundCount,
+				GeneratedFakeCount: settings.GeneratedFakeCount,
+				DrawingSeconds:     settings.DrawingSeconds,
+				FakePromptSeconds:  settings.FakePromptSeconds,
+				VotingSeconds:      settings.VotingSeconds,
+				GameOptions:        settings.GameOptions,
+			})
+			for _, conn := range conns {
+				postEnv(t, r, conn, proto.C2SReady, proto.ReadyPayload{Ready: true})
+			}
+			postEnv(t, r, leaderConn, proto.C2SStartGame, proto.StartGamePayload{})
+
+			expected := expectedPlayablePhases(game.ID, playerCount, settings)
+			got := waitPhaseSequence(t, leaderCap, expected, 20*time.Second)
+			if !slices.Equal(got, expected) {
+				t.Fatalf("phase sequence mismatch for %s\nwant: %+v\ngot:  %+v", game.ID, expected, got)
+			}
+
+			if got := countByType(leaderCap, proto.S2CError); got != 0 {
+				t.Fatalf("%s emitted %d server errors during phase sweep", game.ID, got)
+			}
+
+			snap := waitRoomMode(t, r, RoomModeResults, 5*time.Second)
+			if snap.RoomMode != RoomModeResults {
+				t.Fatalf("%s room mode: want %q, got %q", game.ID, RoomModeResults, snap.RoomMode)
+			}
+		})
+	}
 }
 
 // -----------------------------------------------------------------------------

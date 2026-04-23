@@ -99,11 +99,13 @@ type Phase struct {
 // building phases or rendering choices. Values are normalized by the room
 // actor before a game starts.
 type GameSettings struct {
+	GameID             string
 	RoundCount         int
 	GeneratedFakeCount int
 	DrawingSeconds     int
 	FakePromptSeconds  int
 	VotingSeconds      int
+	GameOptions        map[string]any
 }
 
 // Player tracks connection/identity. SessionToken is opaque; never sent in events.
@@ -120,6 +122,7 @@ type Player struct {
 // room actor goroutine — no locks, no sharing. See §4, §12.
 type GameState struct {
 	RoomID    string
+	LeaderID  PlayerID
 	Players   map[PlayerID]*Player
 	PhaseIdx  int
 	Round     int
@@ -127,6 +130,7 @@ type GameState struct {
 	PhaseData map[string]PhaseResult
 	Scores    map[PlayerID]int
 	StartedAt time.Time
+	EndAfterAdvance bool
 }
 
 // ActivePlayers returns players currently connected. Primitives that need to

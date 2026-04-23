@@ -7,6 +7,13 @@ export default function Lobby(): JSX.Element {
   const me = selfPlayer(g);
   const [busy, setBusy] = useState(false);
   const isLeader = !!me && g.leaderId === me.id;
+  const connectedPlayers = g.players.filter((p) => p.connected);
+  const readyPlayers = connectedPlayers.filter((p) => p.ready);
+  const selectedGame = g.gameCatalog.find((game) => game.id === g.selectedGameId) ?? null;
+  const mafiaDefaults = defaultMafiaLobbyOptions(connectedPlayers.length);
+  const roundOptions = g.selectedGameId === "fake_artist"
+    ? Array.from({ length: 60 }, (_, idx) => idx + 1)
+    : [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
 
   function toggleReady(): void {
     if (!me) return;
@@ -21,24 +28,34 @@ export default function Lobby(): JSX.Element {
     drawing_seconds?: number;
     fake_prompt_seconds?: number;
     voting_seconds?: number;
+    game_options?: Record<string, unknown>;
   }): void {
     if (!isLeader) return;
     client.send(C2S.UpdateSettings, {
+      game_id: g.selectedGameId ?? g.settings.game_id,
       round_count: next.round_count ?? g.settings.round_count,
       generated_fake_count: next.generated_fake_count ?? g.settings.generated_fake_count,
       drawing_seconds: next.drawing_seconds ?? g.settings.drawing_seconds,
       fake_prompt_seconds: next.fake_prompt_seconds ?? g.settings.fake_prompt_seconds,
       voting_seconds: next.voting_seconds ?? g.settings.voting_seconds,
+      game_options: next.game_options ?? g.settings.game_options ?? {},
     });
   }
 
   return (
     <div className="stack">
       <div className="card">
-        <h2>Lobby - {g.room?.room_id ?? "..."}</h2>
+        <h2>{selectedGame?.name ?? "Game"} Lobby</h2>
         <p className="muted">
-          Round {g.round || 0}. Waiting for all players to ready up (minimum 3).
+          Room {g.room?.room_id ?? "..."}. Everyone readies here, then the host explicitly starts
+          the match when the room is set.
         </p>
+        {selectedGame && (
+          <p className="muted">
+            {selectedGame.summary} Supports {selectedGame.min_players}-{selectedGame.max_players}{" "}
+            players.
+          </p>
+        )}
         <div className="grid">
           {g.players.map((p) => (
             <div key={p.id} className="row" style={{ justifyContent: "space-between" }}>
@@ -70,69 +87,456 @@ export default function Lobby(): JSX.Element {
               disabled={!isLeader}
               onChange={(e) => updateSettings({ round_count: Number(e.target.value) })}
             >
-              {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => (
+              {roundOptions.map((n) => (
                 <option key={n} value={n}>
                   {n}
                 </option>
               ))}
             </select>
           </label>
-          <label>
-            <span>Generated fake prompts per drawing</span>
-            <select
-              value={g.settings.generated_fake_count}
-              disabled={!isLeader}
-              onChange={(e) => updateSettings({ generated_fake_count: Number(e.target.value) })}
-            >
-              {[0, 1, 2, 3, 4, 5, 6].map((n) => (
-                <option key={n} value={n}>
-                  {n}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            <span>Drawing time</span>
-            <select
-              value={g.settings.drawing_seconds}
-              disabled={!isLeader}
-              onChange={(e) => updateSettings({ drawing_seconds: Number(e.target.value) })}
-            >
-              {[30, 45, 60, 75, 90, 120, 180, 240, 300].map((seconds) => (
-                <option key={seconds} value={seconds}>
-                  {formatSeconds(seconds)}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            <span>Fake prompt time</span>
-            <select
-              value={g.settings.fake_prompt_seconds}
-              disabled={!isLeader}
-              onChange={(e) => updateSettings({ fake_prompt_seconds: Number(e.target.value) })}
-            >
-              {[30, 45, 60, 75, 90, 120, 180, 240, 300].map((seconds) => (
-                <option key={seconds} value={seconds}>
-                  {formatSeconds(seconds)}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            <span>Voting time</span>
-            <select
-              value={g.settings.voting_seconds}
-              disabled={!isLeader}
-              onChange={(e) => updateSettings({ voting_seconds: Number(e.target.value) })}
-            >
-              {[10, 15, 20, 30, 45, 60, 90, 120, 180].map((seconds) => (
-                <option key={seconds} value={seconds}>
-                  {formatSeconds(seconds)}
-                </option>
-              ))}
-            </select>
-          </label>
+          {g.selectedGameId === "jrawful" && (
+            <>
+              <label>
+                <span>Generated fake prompts per drawing</span>
+                <select
+                  value={g.settings.generated_fake_count}
+                  disabled={!isLeader}
+                  onChange={(e) => updateSettings({ generated_fake_count: Number(e.target.value) })}
+                >
+                  {[0, 1, 2, 3, 4, 5, 6].map((n) => (
+                    <option key={n} value={n}>
+                      {n}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                <span>Drawing time</span>
+                <select
+                  value={g.settings.drawing_seconds}
+                  disabled={!isLeader}
+                  onChange={(e) => updateSettings({ drawing_seconds: Number(e.target.value) })}
+                >
+                  {[30, 45, 60, 75, 90, 120, 180, 240, 300].map((seconds) => (
+                    <option key={seconds} value={seconds}>
+                      {formatSeconds(seconds)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                <span>Fake prompt time</span>
+                <select
+                  value={g.settings.fake_prompt_seconds}
+                  disabled={!isLeader}
+                  onChange={(e) => updateSettings({ fake_prompt_seconds: Number(e.target.value) })}
+                >
+                  {[30, 45, 60, 75, 90, 120, 180, 240, 300].map((seconds) => (
+                    <option key={seconds} value={seconds}>
+                      {formatSeconds(seconds)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                <span>Voting time</span>
+                <select
+                  value={g.settings.voting_seconds}
+                  disabled={!isLeader}
+                  onChange={(e) => updateSettings({ voting_seconds: Number(e.target.value) })}
+                >
+                  {[10, 15, 20, 30, 45, 60, 90, 120, 180].map((seconds) => (
+                    <option key={seconds} value={seconds}>
+                      {formatSeconds(seconds)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </>
+          )}
+          {g.selectedGameId === "reaction_duel" && (
+            <label>
+              <span>Visible countdown</span>
+              <select
+                value={Number(g.settings.game_options?.countdown_seconds ?? 3)}
+                disabled={!isLeader}
+                onChange={(e) =>
+                  updateSettings({
+                    game_options: {
+                      ...(g.settings.game_options ?? {}),
+                      countdown_seconds: Number(e.target.value),
+                    },
+                  })
+                }
+              >
+                {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((seconds) => (
+                  <option key={seconds} value={seconds}>
+                    {formatSeconds(seconds)}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+          {g.selectedGameId === "price_is_right" && (
+            <>
+              <label>
+                <span>Guess time</span>
+                <select
+                  value={g.settings.voting_seconds}
+                  disabled={!isLeader}
+                  onChange={(e) => updateSettings({ voting_seconds: Number(e.target.value) })}
+                >
+                  {[10, 15, 20, 30, 45, 60].map((seconds) => (
+                    <option key={seconds} value={seconds}>
+                      {formatSeconds(seconds)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                <span>Minimum item price</span>
+                <select
+                  value={Number(g.settings.game_options?.minimum_price_dollars ?? 5)}
+                  disabled={!isLeader}
+                  onChange={(e) =>
+                    updateSettings({
+                      game_options: {
+                        ...(g.settings.game_options ?? {}),
+                        minimum_price_dollars: Number(e.target.value),
+                      },
+                    })
+                  }
+                >
+                  {[5, 10, 25, 50, 100, 500].map((dollars) => (
+                    <option key={dollars} value={dollars}>
+                      ${dollars}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                <span>Threshold mode</span>
+                <select
+                  value={String(g.settings.game_options?.threshold_mode ?? "fixed")}
+                  disabled={!isLeader}
+                  onChange={(e) =>
+                    updateSettings({
+                      game_options: {
+                        ...(g.settings.game_options ?? {}),
+                        threshold_mode: e.target.value,
+                      },
+                    })
+                  }
+                >
+                  <option value="fixed">Fixed each round</option>
+                  <option value="times_ten">Increase by x10 each round</option>
+                </select>
+              </label>
+            </>
+          )}
+          {g.selectedGameId === "draw_duel" && (
+            <>
+              <label>
+                <span>Draw time</span>
+                <select
+                  value={g.settings.drawing_seconds}
+                  disabled={!isLeader}
+                  onChange={(e) => updateSettings({ drawing_seconds: Number(e.target.value) })}
+                >
+                  {[20, 30, 45, 60, 75, 90, 120, 180].map((seconds) => (
+                    <option key={seconds} value={seconds}>
+                      {formatSeconds(seconds)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                <span>Judging time</span>
+                <select
+                  value={g.settings.voting_seconds}
+                  disabled={!isLeader}
+                  onChange={(e) => updateSettings({ voting_seconds: Number(e.target.value) })}
+                >
+                  {[10, 15, 20, 30, 45, 60, 90].map((seconds) => (
+                    <option key={seconds} value={seconds}>
+                      {formatSeconds(seconds)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </>
+          )}
+          {g.selectedGameId === "fake_artist" && (
+            <>
+              <label>
+                <span>Draw time per player</span>
+                <select
+                  value={g.settings.drawing_seconds}
+                  disabled={!isLeader}
+                  onChange={(e) => updateSettings({ drawing_seconds: Number(e.target.value) })}
+                >
+                  {[10, 15, 20, 30, 45, 60].map((seconds) => (
+                    <option key={seconds} value={seconds}>
+                      {formatSeconds(seconds)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                <span>Voting time</span>
+                <select
+                  value={g.settings.voting_seconds}
+                  disabled={!isLeader}
+                  onChange={(e) => updateSettings({ voting_seconds: Number(e.target.value) })}
+                >
+                  {[15, 20, 30, 45, 60, 90, 120].map((seconds) => (
+                    <option key={seconds} value={seconds}>
+                      {formatSeconds(seconds)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                <span>Replay count</span>
+                <select
+                  value={Number(g.settings.game_options?.replay_count ?? 1)}
+                  disabled={!isLeader}
+                  onChange={(e) =>
+                    updateSettings({
+                      game_options: {
+                        ...(g.settings.game_options ?? {}),
+                        replay_count: Number(e.target.value),
+                      },
+                    })
+                  }
+                >
+                  {[1, 2, 3, 4].map((count) => (
+                    <option key={count} value={count}>
+                      {count}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="stack">
+                <span>Color code each drawer</span>
+                <button
+                  type="button"
+                  disabled={!isLeader}
+                  onClick={() =>
+                    updateSettings({
+                      game_options: {
+                        ...(g.settings.game_options ?? {}),
+                        color_coded_drawers: !Boolean(g.settings.game_options?.color_coded_drawers),
+                      },
+                    })
+                  }
+                >
+                  {Boolean(g.settings.game_options?.color_coded_drawers) ? "On" : "Off"}
+                </button>
+              </label>
+              <label className="stack">
+                <span>Continuous replay during voting</span>
+                <button
+                  type="button"
+                  disabled={!isLeader}
+                  onClick={() =>
+                    updateSettings({
+                      game_options: {
+                        ...(g.settings.game_options ?? {}),
+                        continuous_replay: !Boolean(g.settings.game_options?.continuous_replay),
+                      },
+                    })
+                  }
+                >
+                  {Boolean(g.settings.game_options?.continuous_replay) ? "On" : "Off"}
+                </button>
+              </label>
+            </>
+          )}
+          {g.selectedGameId === "split_vote" && (
+            <>
+              <label>
+                <span>Target mode</span>
+                <select
+                  value={String(g.settings.game_options?.target_mode ?? "strict_split")}
+                  disabled={!isLeader}
+                  onChange={(e) =>
+                    updateSettings({
+                      game_options: {
+                        ...(g.settings.game_options ?? {}),
+                        target_mode: e.target.value,
+                      },
+                    })
+                  }
+                >
+                  <option value="strict_split">Strict split</option>
+                  <option value="variable">Variable target</option>
+                  <option value="odd_one">Get the odd one</option>
+                </select>
+              </label>
+              <label>
+                <span>Prompt authoring</span>
+                <select
+                  value={String(g.settings.game_options?.authoring_mode ?? "splitter_prompt_and_options")}
+                  disabled={!isLeader}
+                  onChange={(e) =>
+                    updateSettings({
+                      game_options: {
+                        ...(g.settings.game_options ?? {}),
+                        authoring_mode: e.target.value,
+                      },
+                    })
+                  }
+                >
+                  <option value="splitter_prompt_and_options">Splitter writes prompt + options</option>
+                  <option value="generated_prompt_splitter_options">Generated prompt, splitter writes options</option>
+                </select>
+              </label>
+            </>
+          )}
+          {g.selectedGameId === "mafia" && (
+            <>
+              <div className="card" style={{ gridColumn: "1 / -1", background: "#0f1720" }}>
+                <h3>Auto-scaled setup</h3>
+                <p className="muted">
+                  Mafia roles scale automatically with the connected player count. Current room setup:
+                  {" "}
+                  {mafiaRoleSummary(connectedPlayers.length)}.
+                </p>
+              </div>
+              <label>
+                <span>Max day cycles</span>
+                <select
+                  value={g.settings.round_count}
+                  disabled={!isLeader}
+                  onChange={(e) => updateSettings({ round_count: Number(e.target.value) })}
+                >
+                  {Array.from({ length: 15 }, (_, idx) => idx + 1).map((count) => (
+                    <option key={count} value={count}>
+                      {count}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                <span>Night action time</span>
+                <select
+                  value={g.settings.drawing_seconds}
+                  disabled={!isLeader}
+                  onChange={(e) => updateSettings({ drawing_seconds: Number(e.target.value) })}
+                >
+                  {[10, 15, 20, 25, 30, 45, 60].map((seconds) => (
+                    <option key={seconds} value={seconds}>
+                      {formatSeconds(seconds)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                <span>Day discussion time</span>
+                <select
+                  value={g.settings.fake_prompt_seconds}
+                  disabled={!isLeader}
+                  onChange={(e) => updateSettings({ fake_prompt_seconds: Number(e.target.value) })}
+                >
+                  {[20, 30, 45, 60, 90, 120, 180].map((seconds) => (
+                    <option key={seconds} value={seconds}>
+                      {formatSeconds(seconds)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                <span>Day vote time</span>
+                <select
+                  value={g.settings.voting_seconds}
+                  disabled={!isLeader}
+                  onChange={(e) => updateSettings({ voting_seconds: Number(e.target.value) })}
+                >
+                  {[10, 15, 20, 30, 45, 60].map((seconds) => (
+                    <option key={seconds} value={seconds}>
+                      {formatSeconds(seconds)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="stack">
+                <span>Reveal roles on death</span>
+                <button
+                  type="button"
+                  disabled={!isLeader}
+                  onClick={() =>
+                    updateSettings({
+                      game_options: {
+                        ...(g.settings.game_options ?? {}),
+                        reveal_on_death: !Boolean(
+                          g.settings.game_options?.reveal_on_death ?? mafiaDefaults.revealOnDeath,
+                        ),
+                      },
+                    })
+                  }
+                >
+                  {Boolean(g.settings.game_options?.reveal_on_death ?? mafiaDefaults.revealOnDeath) ? "On" : "Off"}
+                </button>
+              </label>
+              <label className="stack">
+                <span>Doctor can self-protect</span>
+                <button
+                  type="button"
+                  disabled={!isLeader}
+                  onClick={() =>
+                    updateSettings({
+                      game_options: {
+                        ...(g.settings.game_options ?? {}),
+                        self_protect: !Boolean(
+                          g.settings.game_options?.self_protect ?? mafiaDefaults.selfProtect,
+                        ),
+                      },
+                    })
+                  }
+                >
+                  {Boolean(g.settings.game_options?.self_protect ?? mafiaDefaults.selfProtect) ? "On" : "Off"}
+                </button>
+              </label>
+              <label>
+                <span>Tie resolution</span>
+                <select
+                  value={String(g.settings.game_options?.tie_rule ?? mafiaDefaults.tieRule)}
+                  disabled={!isLeader}
+                  onChange={(e) =>
+                    updateSettings({
+                      game_options: {
+                        ...(g.settings.game_options ?? {}),
+                        tie_rule: e.target.value,
+                      },
+                    })
+                  }
+                >
+                  <option value="no_elimination">No elimination</option>
+                  <option value="revote">Revote</option>
+                  <option value="mayor_breaks">Mayor breaks tie</option>
+                </select>
+              </label>
+              <label>
+                <span>Detective investigation</span>
+                <select
+                  value={String(g.settings.game_options?.investigation_mode ?? mafiaDefaults.investigationMode)}
+                  disabled={!isLeader}
+                  onChange={(e) =>
+                    updateSettings({
+                      game_options: {
+                        ...(g.settings.game_options ?? {}),
+                        investigation_mode: e.target.value,
+                      },
+                    })
+                  }
+                >
+                  <option value="faction">Mafia or Town</option>
+                  <option value="exact_role">Exact role</option>
+                </select>
+              </label>
+            </>
+          )}
         </div>
       </div>
 
@@ -140,6 +544,22 @@ export default function Lobby(): JSX.Element {
         <button className="primary" disabled={!me || busy} onClick={toggleReady}>
           {me?.ready ? "Not ready" : "I'm ready"}
         </button>
+        {isLeader && (
+          <button
+            className="primary"
+            disabled={
+              !selectedGame ||
+              connectedPlayers.length < (selectedGame?.min_players ?? 3) ||
+              readyPlayers.length !== connectedPlayers.length
+            }
+            onClick={() => client.send(C2S.StartGame, {})}
+          >
+            Start game
+          </button>
+        )}
+        {isLeader && (
+          <button onClick={() => client.send(C2S.ReturnToPicker, {})}>Back to picker</button>
+        )}
         <button onClick={() => client.disconnect()}>Leave</button>
       </div>
     </div>
@@ -151,4 +571,55 @@ function formatSeconds(seconds: number): string {
   const mins = Math.floor(seconds / 60);
   const rest = seconds % 60;
   return rest === 0 ? `${mins}m` : `${mins}m ${rest}s`;
+}
+
+function defaultMafiaLobbyOptions(playerCount: number): {
+  revealOnDeath: boolean;
+  selfProtect: boolean;
+  tieRule: "no_elimination" | "revote" | "mayor_breaks";
+  investigationMode: "faction" | "exact_role";
+} {
+  if (playerCount <= 6) {
+    return {
+      revealOnDeath: true,
+      selfProtect: false,
+      tieRule: "no_elimination",
+      investigationMode: "faction",
+    };
+  }
+  if (playerCount <= 8) {
+    return {
+      revealOnDeath: true,
+      selfProtect: true,
+      tieRule: "revote",
+      investigationMode: "faction",
+    };
+  }
+  if (playerCount <= 10) {
+    return {
+      revealOnDeath: true,
+      selfProtect: true,
+      tieRule: "mayor_breaks",
+      investigationMode: "faction",
+    };
+  }
+  return {
+    revealOnDeath: false,
+    selfProtect: true,
+    tieRule: "revote",
+    investigationMode: "exact_role",
+  };
+}
+
+function mafiaRoleSummary(playerCount: number): string {
+  if (playerCount <= 6) {
+    return "1 Mafia, 1 Detective, 1 Doctor, and the rest Citizens";
+  }
+  if (playerCount <= 8) {
+    return "2 Mafia, 1 Detective, 1 Doctor, 1 Mayor, and the rest Citizens";
+  }
+  if (playerCount <= 10) {
+    return "2 Mafia, 1 Detective, 1 Doctor, 1 Mayor, and the rest Citizens";
+  }
+  return "3 Mafia, 2 Detectives, 1 Doctor, 1 Mayor, and the rest Citizens";
 }

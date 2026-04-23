@@ -13,8 +13,9 @@ async function makePlayer(browser: Browser, name: string): Promise<Player> {
   return { name, ctx, page };
 }
 
-async function joinMain(p: Player): Promise<void> {
+async function joinRoom(p: Player, roomCode: string): Promise<void> {
   await p.page.goto("/");
+  await p.page.getByPlaceholder("room code").fill(roomCode);
   await p.page.getByPlaceholder("your name").fill(p.name);
   await p.page.getByRole("button", { name: "Join" }).click();
 }
@@ -69,6 +70,7 @@ async function drawOneStroke(p: Player): Promise<void> {
 
 test("capture real gameplay screenshots for README gif", async ({ browser }) => {
   test.setTimeout(10 * 60_000);
+  const roomCode = `CAP${Date.now().toString().slice(-6)}`;
   await test.step("Prepare screenshot output folder", async () => {
     await fs.mkdir(SHOTS_DIR, { recursive: true });
     for (const file of await fs.readdir(SHOTS_DIR)) {
@@ -81,23 +83,29 @@ test("capture real gameplay screenshots for README gif", async ({ browser }) => 
   try {
     await test.step("Capture lobby", async () => {
       for (const p of players) {
-        await joinMain(p);
-        await expect(p.page.getByRole("heading", { name: /Lobby/ })).toBeVisible({ timeout: 15000 });
+        await joinRoom(p, roomCode);
+        await expect(p.page.getByRole("heading", { name: /Jackson Box/ })).toBeVisible({ timeout: 15000 });
       }
-      await players[0]!.page.screenshot({ path: path.join(SHOTS_DIR, "01-lobby.png"), fullPage: true });
+      await players[0]!.page.screenshot({ path: path.join(SHOTS_DIR, "jrawful-01-picker.png"), fullPage: true });
+      await players[0]!.page.getByRole("button", { name: /Choose Jrawful/i }).click();
+      await expect(players[0]!.page.getByRole("heading", { name: /Jrawful Lobby/i })).toBeVisible({
+        timeout: 15000,
+      });
     });
 
     await test.step("Ready players", async () => {
+      await players[0]!.page.getByLabel("Rounds").selectOption("1");
       for (const p of players) {
         await p.page.getByRole("button", { name: /I'm ready/ }).click();
       }
+      await players[0]!.page.getByRole("button", { name: /Start game/i }).click();
     });
 
     await test.step("Capture drawing phase", async () => {
       for (const p of players) {
         await expect(p.page.getByRole("heading", { name: "Draw this" })).toBeVisible({ timeout: 30000 });
       }
-      await players[0]!.page.screenshot({ path: path.join(SHOTS_DIR, "02-draw-phase.png"), fullPage: true });
+      await players[0]!.page.screenshot({ path: path.join(SHOTS_DIR, "jrawful-02-draw-phase.png"), fullPage: true });
     });
 
     await test.step("Submit demo drawings", async () => {
@@ -113,7 +121,7 @@ test("capture real gameplay screenshots for README gif", async ({ browser }) => 
       for (const p of players) {
         await expect(p.page.getByRole("heading", { name: "Fake a prompt" })).toBeVisible({ timeout: 30000 });
       }
-      await players[0]!.page.screenshot({ path: path.join(SHOTS_DIR, "03-fake-phase.png"), fullPage: true });
+      await players[0]!.page.screenshot({ path: path.join(SHOTS_DIR, "jrawful-03-fake-phase.png"), fullPage: true });
       for (const p of players) {
         const inputs = p.page.getByPlaceholder("What could this be?");
         const count = await inputs.count();
@@ -132,7 +140,7 @@ test("capture real gameplay screenshots for README gif", async ({ browser }) => 
       for (const p of players) {
         await expect(p.page.getByRole("heading", { name: "Vote" })).toBeVisible({ timeout: 30000 });
       }
-      await players[0]!.page.screenshot({ path: path.join(SHOTS_DIR, "04-vote-phase.png"), fullPage: true });
+      await players[0]!.page.screenshot({ path: path.join(SHOTS_DIR, "jrawful-04-vote-phase.png"), fullPage: true });
       for (const p of players) {
         const cards = p.page
           .locator(".card")
@@ -163,8 +171,8 @@ test("capture real gameplay screenshots for README gif", async ({ browser }) => 
 
     await test.step("Capture highlighted reveal", async () => {
       await expect(
-        players[0]!.page.getByRole("heading", { name: /Round 1/i }),
-        "leader reveal screen"
+        players[0]!.page.getByRole("button", { name: /Next reveal|Start next round/i }),
+        "leader reveal controls"
       ).toBeVisible({ timeout: 30000 });
       for (let i = 0; i < 6; i++) {
         if (await players[0]!.page.locator(".revealed-answer").isVisible().catch(() => false)) break;
@@ -174,7 +182,16 @@ test("capture real gameplay screenshots for README gif", async ({ browser }) => 
         players[0]!.page.getByLabel("Revealed answer").first(),
         "highlighted revealed answer"
       ).toBeVisible({ timeout: 10000 });
-      await players[0]!.page.screenshot({ path: path.join(SHOTS_DIR, "05-reveal-phase.png"), fullPage: true });
+      await players[0]!.page.screenshot({ path: path.join(SHOTS_DIR, "jrawful-05-reveal-phase.png"), fullPage: true });
+      for (;;) {
+        const next = players[0]!.page.getByRole("button", { name: /Next reveal|Start next round/i });
+        await next.click();
+        const maybeResults = players[0]!.page.getByText(/Final scores/i);
+        if (await maybeResults.isVisible().catch(() => false)) {
+          break;
+        }
+      }
+      await players[0]!.page.screenshot({ path: path.join(SHOTS_DIR, "jrawful-06-results.png"), fullPage: true });
     });
   } finally {
     for (const p of players) {

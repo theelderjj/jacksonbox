@@ -3,6 +3,7 @@ import type {
   DrawingsPayload,
   ErrorPayload,
   PhaseChangePayload,
+  GameDefinition,
   RevealPayload,
   RoomEvictingPayload,
   RoomState,
@@ -17,17 +18,21 @@ function baseRoom(overrides: Partial<RoomState> = {}): RoomState {
   return {
     room_id: "r1",
     status: "in_game",
+    room_mode: "game_picker",
     phase: "lobby",
     round: 0,
     players: [{ id: "p1", name: "Alice", connected: true, ready: false }],
     scores: {},
     settings: {
+      game_id: "jrawful",
       round_count: 3,
       generated_fake_count: 0,
       drawing_seconds: 60,
       fake_prompt_seconds: 90,
       voting_seconds: 20,
     },
+    selected_game_id: "jrawful",
+    game_catalog: [],
     ...overrides,
   };
 }
@@ -97,6 +102,7 @@ describe("reduceState", () => {
     expect(next.playerId).toBe("p1");
     expect(next.round).toBe(2);
     expect(next.phase).toBe("voting_r2");
+    expect(next.roomMode).toBe("game_picker");
     expect(next.scores).toEqual({ p1: 500 });
     expect(next.players).toHaveLength(1);
   });
@@ -285,7 +291,177 @@ describe("reduceState", () => {
       payload: { scores: { p1: 4000, p2: 2500 } },
     });
     expect(next.phase).toBe("game_end");
+    expect(next.roomMode).toBe("results");
     expect(next.scores).toEqual({ p1: 4000, p2: 2500 });
+  });
+
+  it("game_catalog stores available and planned games for the picker", () => {
+    const games: GameDefinition[] = [
+      {
+        id: "jrawful",
+        name: "Jrawful",
+        summary: "Draw, bluff, vote.",
+        min_players: 3,
+        max_players: 20,
+        estimated_minutes: 20,
+        tags: ["drawing"],
+        status: "available",
+      },
+      {
+        id: "fake_artist",
+        name: "Fake Artist",
+        summary: "Coming soon.",
+        min_players: 4,
+        max_players: 12,
+        estimated_minutes: 10,
+        tags: ["drawing"],
+        status: "planned",
+      },
+    ];
+    const next = reduceState(initialState, { type: "game_catalog", payload: { games } });
+    expect(next.gameCatalog).toEqual(games);
+  });
+
+  it("game_selected moves the room into game_lobby and stores the selection", () => {
+    const next = reduceState(initialState, {
+      type: "game_selected",
+      payload: { game_id: "jrawful" },
+    });
+    expect(next.selectedGameId).toBe("jrawful");
+    expect(next.roomMode).toBe("game_lobby");
+  });
+
+  it("reaction_result stores the latest duel standings", () => {
+    const next = reduceState(initialState, {
+      type: "reaction_result",
+      payload: {
+        round: 1,
+        results: [
+          { player_id: "p1", player_name: "Alice", false_start: false, reaction_ms: 12, rank: 1, points: 1000 },
+        ],
+      },
+    });
+    expect(next.reactionResults).toHaveLength(1);
+    expect(next.reactionResults[0]?.player_name).toBe("Alice");
+  });
+
+  it("price prompt and result events store the round listing and reveal", () => {
+    const withPrompt = reduceState(initialState, {
+      type: "price_prompt",
+      payload: {
+        round: 1,
+        product_id: "vacuum",
+        product_name: "Cordless Stick Vacuum",
+        image_url: "data:image/svg+xml;base64,AAA",
+        threshold_cents: 500,
+        threshold_mode: "fixed",
+        threshold_base_cents: 500,
+      },
+    });
+    expect(withPrompt.pricePrompt?.product_name).toBe("Cordless Stick Vacuum");
+
+    const withResult = reduceState(withPrompt, {
+      type: "price_result",
+      payload: {
+        round: 1,
+        product_id: "vacuum",
+        product_name: "Cordless Stick Vacuum",
+        image_url: "data:image/svg+xml;base64,AAA",
+        actual_price_cents: 14999,
+        threshold_cents: 500,
+        threshold_mode: "fixed",
+        guesses: { p1: 14900 },
+        winner_ids: ["p1"],
+      },
+    });
+    expect(withResult.priceResult?.actual_price_cents).toBe(14999);
+    expect(withResult.priceResult?.winner_ids).toEqual(["p1"]);
+  });
+
+  it("split vote prompt and reveal events store their payloads", () => {
+    const withPrompt = reduceState(initialState, {
+      type: "split_vote_prompt",
+      payload: {
+        round: 1,
+        splitter_id: "p1",
+        splitter_name: "Alice",
+        prompt: "Who wins?",
+        option_a: "A",
+        option_b: "B",
+        show_target: false,
+      },
+    });
+    expect(withPrompt.splitVotePrompt?.splitter_name).toBe("Alice");
+
+    const withReveal = reduceState(withPrompt, {
+      type: "split_reveal",
+      payload: {
+        round: 1,
+        splitter_id: "p1",
+        splitter_name: "Alice",
+        prompt: "Who wins?",
+        option_a: "A",
+        option_b: "B",
+        count_a: 2,
+        count_b: 1,
+        target_a: 2,
+        target_b: 1,
+        target_mode: "variable",
+        show_target: true,
+        achieved: true,
+        player_choices: { p1: "A" },
+      },
+    });
+    expect(withReveal.splitReveal?.achieved).toBe(true);
+  });
+
+  it("mafia private state only lands for the current player and reveal is global", () => {
+    const mine = reduceState({ ...initialState, playerId: "p1" }, {
+      type: "mafia_state",
+      payload: {
+        player_id: "p1",
+        round: 1,
+        phase: "night_collect",
+        your_role: "detective",
+        team_ids: [],
+        alive_players: [{ player_id: "p1", name: "Alice", alive: true }],
+        can_act: true,
+        target_ids: ["p2"],
+        note: "Investigate one player.",
+      },
+    });
+    expect(mine.mafiaState?.your_role).toBe("detective");
+
+    const theirs = reduceState({ ...initialState, playerId: "p1" }, {
+      type: "mafia_state",
+      payload: {
+        player_id: "p2",
+        round: 1,
+        phase: "night_collect",
+        your_role: "mafia",
+        team_ids: ["p2"],
+        alive_players: [{ player_id: "p2", name: "Bob", alive: true }],
+        can_act: true,
+        target_ids: ["p1"],
+      },
+    });
+    expect(theirs.mafiaState).toBeNull();
+
+    const revealed = reduceState(mine, {
+      type: "mafia_reveal",
+      payload: {
+        round: 1,
+        phase: "day_reveal",
+        eliminated_id: "p2",
+        eliminated_name: "Bob",
+        eliminated_role: "mafia",
+        votes: { p1: "p2" },
+        alive_ids: ["p1"],
+        winner: "town",
+        role_map: { p1: "detective", p2: "mafia" },
+      },
+    });
+    expect(revealed.mafiaReveal?.winner).toBe("town");
   });
 
   it("room_evicting: surfaces reason for the eviction banner", () => {

@@ -234,6 +234,37 @@ h1, h2, h3 {
   gap: 12px;
 }
 
+.split-choice {
+  min-height: 120px;
+  justify-content: center;
+}
+
+.game-card.selected {
+  border-color: rgba(92, 200, 255, 0.4);
+  box-shadow: 0 10px 30px rgba(92, 200, 255, 0.12);
+}
+
+.duel-button {
+  width: 100%;
+  min-height: 220px;
+  border-radius: 24px;
+  font-size: clamp(32px, 8vw, 64px);
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.duel-button.wait {
+  background: linear-gradient(180deg, #8d1b2b, #5e101d);
+  border-color: rgba(255, 107, 107, 0.5);
+  color: #fff5f5;
+}
+
+.duel-button.go {
+  background: linear-gradient(180deg, #1f9448, #176b34);
+  border-color: rgba(74, 222, 128, 0.45);
+  color: #f4fff7;
+}
+
 .instruction-grid,
 .settings-grid {
   display: grid;
@@ -268,6 +299,25 @@ h1, h2, h3 {
 .pill.offline {
   background: #3a1d22;
   color: var(--danger);
+}
+
+.leader-menu-wrap {
+  position: relative;
+}
+
+.leader-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 20;
+  min-width: 180px;
+  padding: 10px;
+  margin-bottom: 0;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.28);
+}
+
+.leader-menu button {
+  width: 100%;
 }
 
 .intro-shell {

@@ -14,10 +14,12 @@ import (
 
 // Manager owns the MAIN room and implements gateway.Dispatcher.
 type Manager struct {
-	mu    sync.RWMutex
-	rooms map[string]*Room
-	log   *slog.Logger
-	store *auth.Store
+	mu       sync.RWMutex
+	rooms    map[string]*Room
+	log      *slog.Logger
+	store    *auth.Store
+	builder  PhaseBuilder
+	defaults Defaults
 }
 
 // Config ties the Jrawful phases + defaults into the manager.
@@ -30,17 +32,14 @@ type Config struct {
 
 func NewManager(cfg Config) (*Manager, error) {
 	m := &Manager{
-		rooms: map[string]*Room{},
-		log:   cfg.Log,
-		store: cfg.Store,
+		rooms:    map[string]*Room{},
+		log:      cfg.Log,
+		store:    cfg.Store,
+		builder:  cfg.Builder,
+		defaults: cfg.Defaults,
 	}
-	for _, id := range []string{"MAIN"} {
-		r, err := NewRoom(id, false, cfg.Builder, cfg.Defaults, cfg.Store, cfg.Log)
-		if err != nil {
-			return nil, fmt.Errorf("build %s: %w", id, err)
-		}
-		m.rooms[id] = r
-		go r.Run()
+	if _, err := m.getOrCreateRoom("MAIN"); err != nil {
+		return nil, fmt.Errorf("build MAIN: %w", err)
 	}
 	return m, nil
 }
@@ -68,11 +67,9 @@ func (m *Manager) Shutdown() {
 // --- gateway.Dispatcher implementation ---
 
 func (m *Manager) Join(ctx context.Context, conn *gateway.Conn, p proto.JoinRoomPayload, msgID string) error {
-	m.mu.RLock()
-	room, ok := m.rooms[p.RoomID]
-	m.mu.RUnlock()
-	if !ok {
-		return errors.New("unknown room_id")
+	room, err := m.getOrCreateRoom(p.RoomID)
+	if err != nil {
+		return err
 	}
 
 	reply := room.PostJoin(ctx, conn, p)
@@ -103,4 +100,26 @@ func (m *Manager) Disconnect(conn *gateway.Conn) {
 		return
 	}
 	room.PostLeave(conn)
+}
+
+func (m *Manager) getOrCreateRoom(id string) (*Room, error) {
+	m.mu.RLock()
+	room, ok := m.rooms[id]
+	m.mu.RUnlock()
+	if ok {
+		return room, nil
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if room, ok = m.rooms[id]; ok {
+		return room, nil
+	}
+	room, err := NewRoom(id, false, m.builder, m.defaults, m.store, m.log)
+	if err != nil {
+		return nil, err
+	}
+	m.rooms[id] = room
+	go room.Run()
+	return room, nil
 }

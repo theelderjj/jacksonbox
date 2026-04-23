@@ -5,15 +5,29 @@
 
 import { useSyncExternalStore } from "react";
 import type {
+  DrawDuelRevealPayload,
+  DrawDuelRoundPayload,
   DrawingSummary,
   ErrorPayload,
+  FakeArtistCanvasPayload,
+  FakeArtistReplayPayload,
+  FakeArtistRevealPayload,
+  FakeArtistTurnPayload,
+  GameDefinition,
+  PricePromptPayload,
+  PriceResultPayload,
+  MafiaRevealPayload,
+  MafiaStatePayload,
   PhaseChangePayload,
   PlayerInfo,
+  ReactionPlayerResult,
   RevealAward,
   RevealPayload,
   RoomState,
   RoundResultPayload,
   SettingsState,
+  SplitRevealPayload,
+  SplitVotePromptPayload,
   VotingChoicesEntry,
 } from "./proto";
 import { Client, type WireEvent } from "./ws";
@@ -32,7 +46,10 @@ export type GameState = {
   players: PlayerInfo[];
   round: number;
   phase: string;
+  roomMode: string;
   deadlineMs: number | null;
+  selectedGameId: string | null;
+  gameCatalog: GameDefinition[];
 
   // Drawing phase
   myPrompt: string | null;
@@ -57,6 +74,19 @@ export type GameState = {
   // Round + final scores
   scores: Record<string, number>;
   lastDeltas: Record<string, number> | null;
+  reactionResults: ReactionPlayerResult[];
+  pricePrompt: PricePromptPayload | null;
+  priceResult: PriceResultPayload | null;
+  splitVotePrompt: SplitVotePromptPayload | null;
+  splitReveal: SplitRevealPayload | null;
+  fakeArtistTurn: FakeArtistTurnPayload | null;
+  fakeArtistCanvas: FakeArtistCanvasPayload | null;
+  fakeArtistReplay: FakeArtistReplayPayload | null;
+  fakeArtistReveal: FakeArtistRevealPayload | null;
+  drawDuelRound: DrawDuelRoundPayload | null;
+  drawDuelReveal: DrawDuelRevealPayload | null;
+  mafiaState: MafiaStatePayload | null;
+  mafiaReveal: MafiaRevealPayload | null;
 
   // Party-leader / pause / pencils-down state (mirrored from server).
   leaderId: string | null;
@@ -79,7 +109,10 @@ export const initialState: GameState = {
   players: [],
   round: 0,
   phase: "",
+  roomMode: "game_picker",
   deadlineMs: null,
+  selectedGameId: null,
+  gameCatalog: [],
   myPrompt: null,
   drawings: {},
   votingChoices: {},
@@ -89,16 +122,31 @@ export const initialState: GameState = {
   revealCurrentDrawing: null,
   scores: {},
   lastDeltas: null,
+  reactionResults: [],
+  pricePrompt: null,
+  priceResult: null,
+  splitVotePrompt: null,
+  splitReveal: null,
+  fakeArtistTurn: null,
+  fakeArtistCanvas: null,
+  fakeArtistReplay: null,
+  fakeArtistReveal: null,
+  drawDuelRound: null,
+  drawDuelReveal: null,
+  mafiaState: null,
+  mafiaReveal: null,
   leaderId: null,
   paused: false,
   pencilsDown: false,
   pauseRemainingMs: null,
   settings: {
+    game_id: "jrawful",
     round_count: 3,
     generated_fake_count: 0,
     drawing_seconds: 60,
     fake_prompt_seconds: 90,
     voting_seconds: 20,
+    game_options: {},
   },
   lastError: null,
   evictingReason: null,
@@ -157,12 +205,15 @@ export function reduceState(prev: GameState, ev: WireEvent): GameState {
         players: ev.payload.room_state.players,
         round: ev.payload.room_state.round,
         phase: ev.payload.room_state.phase ?? "",
+        roomMode: ev.payload.room_state.room_mode ?? prev.roomMode,
         scores: ev.payload.room_state.scores ?? {},
         leaderId: ev.payload.room_state.leader_id ?? null,
         paused: ev.payload.room_state.paused ?? false,
         pencilsDown: ev.payload.room_state.pencils_down ?? false,
         pauseRemainingMs: ev.payload.room_state.remaining_ms ?? null,
         settings: ev.payload.room_state.settings ?? prev.settings,
+        selectedGameId: ev.payload.room_state.selected_game_id ?? null,
+        gameCatalog: ev.payload.room_state.game_catalog ?? prev.gameCatalog,
         lastError: null,
       };
 
@@ -173,12 +224,15 @@ export function reduceState(prev: GameState, ev: WireEvent): GameState {
         players: ev.payload.players,
         round: ev.payload.round,
         phase: ev.payload.phase ?? "",
+        roomMode: ev.payload.room_mode ?? prev.roomMode,
         scores: ev.payload.scores ?? {},
         leaderId: ev.payload.leader_id ?? null,
         paused: ev.payload.paused ?? false,
         pencilsDown: ev.payload.pencils_down ?? false,
         pauseRemainingMs: ev.payload.remaining_ms ?? null,
         settings: ev.payload.settings ?? prev.settings,
+        selectedGameId: ev.payload.selected_game_id ?? prev.selectedGameId,
+        gameCatalog: ev.payload.game_catalog ?? prev.gameCatalog,
       };
 
     case "phase_change": {
@@ -188,7 +242,15 @@ export function reduceState(prev: GameState, ev: WireEvent): GameState {
       // prompt_issued events arrive; pegging it to `drawing_submit` (the
       // previous version) nulled myPrompt after it had already been set,
       // which left the Drawing screen stuck on "…waiting for your prompt".
-      const resetRound = startsWith(p.phase, "prompt_distribute")
+      const resetRound =
+        startsWith(p.phase, "prompt_distribute") ||
+        startsWith(p.phase, "reaction_countdown") ||
+        startsWith(p.phase, "price_prompt") ||
+        startsWith(p.phase, "split_setup") ||
+        startsWith(p.phase, "fake_artist_role") ||
+        startsWith(p.phase, "draw_duel_prompt") ||
+        startsWith(p.phase, "mafia_role_assign") ||
+        startsWith(p.phase, "mafia_night_collect")
         ? {
             reveals: [] as RevealPayload[],
             drawings: {} as Record<string, DrawingSummary>,
@@ -201,6 +263,19 @@ export function reduceState(prev: GameState, ev: WireEvent): GameState {
               { deltas: Record<string, number>; awards: RevealAward[] }
             >,
             revealCurrentDrawing: null as string | null,
+            reactionResults: [] as ReactionPlayerResult[],
+            pricePrompt: null as PricePromptPayload | null,
+            priceResult: null as PriceResultPayload | null,
+            splitVotePrompt: null as SplitVotePromptPayload | null,
+            splitReveal: null as SplitRevealPayload | null,
+            fakeArtistTurn: null as FakeArtistTurnPayload | null,
+            fakeArtistCanvas: null as FakeArtistCanvasPayload | null,
+            fakeArtistReplay: null as FakeArtistReplayPayload | null,
+            fakeArtistReveal: null as FakeArtistRevealPayload | null,
+            drawDuelRound: null as DrawDuelRoundPayload | null,
+            drawDuelReveal: null as DrawDuelRevealPayload | null,
+            mafiaState: null as MafiaStatePayload | null,
+            mafiaReveal: null as MafiaRevealPayload | null,
           }
         : {};
       const leaderboardStart = startsWith(p.phase, "leaderboard")
@@ -215,6 +290,7 @@ export function reduceState(prev: GameState, ev: WireEvent): GameState {
         ...prev,
         round: p.round,
         phase: p.phase,
+        roomMode: "in_game",
         deadlineMs: p.deadline_ms || null,
         lastError: null,
         ...resetRound,
@@ -289,8 +365,59 @@ export function reduceState(prev: GameState, ev: WireEvent): GameState {
       return { ...prev, lastDeltas: rr.deltas, scores: rr.scores };
     }
 
+    case "reaction_result":
+      return { ...prev, reactionResults: ev.payload.results };
+
+    case "price_prompt":
+      return { ...prev, pricePrompt: ev.payload };
+
+    case "price_result":
+      return { ...prev, priceResult: ev.payload };
+
+    case "split_vote_prompt":
+      return { ...prev, splitVotePrompt: ev.payload };
+
+    case "split_reveal":
+      return { ...prev, splitReveal: ev.payload };
+
+    case "fake_artist_turn":
+      return { ...prev, fakeArtistTurn: ev.payload };
+
+    case "fake_artist_canvas":
+      return { ...prev, fakeArtistCanvas: ev.payload };
+
+    case "fake_artist_replay":
+      return { ...prev, fakeArtistReplay: ev.payload };
+
+    case "fake_artist_reveal":
+      return { ...prev, fakeArtistReveal: ev.payload };
+
+    case "draw_duel_round":
+      return { ...prev, drawDuelRound: ev.payload };
+
+    case "draw_duel_reveal":
+      return { ...prev, drawDuelReveal: ev.payload };
+
+    case "mafia_state":
+      if (ev.payload.player_id !== prev.playerId) return prev;
+      return { ...prev, mafiaState: ev.payload };
+
+    case "mafia_reveal":
+      return { ...prev, mafiaReveal: ev.payload };
+
     case "game_end":
-      return { ...prev, scores: ev.payload.scores, phase: "game_end" };
+      return { ...prev, scores: ev.payload.scores, phase: "game_end", roomMode: "results" };
+
+    case "game_catalog":
+      return { ...prev, gameCatalog: ev.payload.games };
+
+    case "game_selected":
+      return {
+        ...prev,
+        selectedGameId: ev.payload.game_id,
+        roomMode: "game_lobby",
+        lastError: null,
+      };
 
     case "room_evicting":
       return { ...prev, evictingReason: ev.payload.reason };

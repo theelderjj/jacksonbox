@@ -1,35 +1,35 @@
 import { defineConfig, devices } from "@playwright/test";
 
+const backendPort = Number(process.env["PLAYWRIGHT_BACKEND_PORT"] ?? "8787");
+const devPort = Number(process.env["PLAYWRIGHT_DEV_PORT"] ?? "4273");
+
 // Playwright brings up the Go backend and the Vite dev server before any
 // test runs, then tears them down after. Tests speak the real wire
-// protocol end-to-end — a reverse of the unit suite (which mocks the
-// socket). Trade-off: slower, but catches contract drift between the TS
-// client + the Go server that unit tests can't.
+// protocol end-to-end, which catches contract drift between the TS client
+// and the Go server that unit tests cannot.
 export default defineConfig({
   testDir: "./e2e",
-  fullyParallel: false, // one shared backend, one shared room
+  fullyParallel: false,
   retries: 0,
   workers: 1,
   reporter: [["list", { printSteps: true }], ["html", { open: "never" }]],
   use: {
-    baseURL: "http://localhost:5173",
+    baseURL: `http://localhost:${devPort}`,
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
     video: "retain-on-failure",
   },
   webServer: [
     {
-      // Go backend. `go run` recompiles on every test run — acceptable for
-      // a small server and avoids a separate `go build` step in CI.
-      command: "go run ./cmd/server",
+      command: `go run ./cmd/server --addr :${backendPort}`,
       cwd: "..",
-      port: 8080,
+      port: backendPort,
       reuseExistingServer: !process.env["CI"],
       timeout: 60_000,
     },
     {
       command: "npm run dev",
-      port: 5173,
+      port: devPort,
       reuseExistingServer: !process.env["CI"],
       timeout: 60_000,
     },

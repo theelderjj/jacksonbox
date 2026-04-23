@@ -84,6 +84,15 @@ describe("parseWireEvent", () => {
       [S2C.RoundResult, "round_result"],
       [S2C.GameEnd, "game_end"],
       [S2C.RoomEvicting, "room_evicting"],
+      [S2C.GameCatalog, "game_catalog"],
+      [S2C.GameSelected, "game_selected"],
+      [S2C.ReactionResult, "reaction_result"],
+      [S2C.PricePrompt, "price_prompt"],
+      [S2C.PriceResult, "price_result"],
+      [S2C.SplitVotePrompt, "split_vote_prompt"],
+      [S2C.SplitReveal, "split_reveal"],
+      [S2C.MafiaState, "mafia_state"],
+      [S2C.MafiaReveal, "mafia_reveal"],
       [S2C.Error, "error"],
     ];
     for (const [wire, ev] of cases) {

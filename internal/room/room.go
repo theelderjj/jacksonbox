@@ -17,6 +17,7 @@ import (
 	"github.com/jj/trivia/internal/auth"
 	"github.com/jj/trivia/internal/engine"
 	"github.com/jj/trivia/internal/gateway"
+	platformcatalog "github.com/jj/trivia/internal/platform/catalog"
 	"github.com/jj/trivia/internal/proto"
 	"github.com/jj/trivia/internal/reveal"
 )
@@ -55,6 +56,15 @@ const (
 	StatusInGame   Status = "in_game"
 	StatusEvicting Status = "evicting"
 	StatusClosed   Status = "closed"
+)
+
+type RoomMode string
+
+const (
+	RoomModeGamePicker RoomMode = "game_picker"
+	RoomModeGameLobby  RoomMode = "game_lobby"
+	RoomModeInGame     RoomMode = "in_game"
+	RoomModeResults    RoomMode = "results"
 )
 
 // Room is the actor's public handle. The goroutine runs Loop(); callers
@@ -111,11 +121,12 @@ type Room struct {
 	// Reveal step animation. stepTimer and stepState are non-nil only while
 	// running the leaderboard phase. stepState.cursor indexes the queue of
 	// step events the actor will emit one-per-RevealStepInterval.
-	stepTimer *time.Timer
-	stepState *revealStepState
-	settings  engine.GameSettings
-	rerolled  map[string]bool
-	drawn     map[string]bool
+	stepTimer      *time.Timer
+	stepState      *revealStepState
+	settings       engine.GameSettings
+	selectedGameID string
+	rerolled       map[string]bool
+	drawn          map[string]bool
 
 	// Readable from outside the actor (manager uses for gating). Atomic-ish
 	// via the statusMu guarding this cell and conns count.
@@ -356,12 +367,14 @@ func (r *Room) handle(m actorMsg) {
 // production code paths.
 func (r *Room) onSnapshot(m actorMsg) {
 	snap := stateSnapshot{
-		Status:    r.status,
-		PhaseIdx:  r.state.PhaseIdx,
-		Round:     r.state.Round,
-		PhaseData: map[string]engine.PhaseResult{},
-		Scores:    map[engine.PlayerID]int{},
-		Players:   map[engine.PlayerID]engine.Player{},
+		Status:         r.status,
+		RoomMode:       r.roomMode(),
+		PhaseIdx:       r.state.PhaseIdx,
+		Round:          r.state.Round,
+		SelectedGameID: r.selectedGameID,
+		PhaseData:      map[string]engine.PhaseResult{},
+		Scores:         map[engine.PlayerID]int{},
+		Players:        map[engine.PlayerID]engine.Player{},
 	}
 	if r.state.PhaseIdx >= 0 && r.state.PhaseIdx < len(r.phases) {
 		snap.PhaseName = r.phases[r.state.PhaseIdx].Name
@@ -381,6 +394,7 @@ func (r *Room) onSnapshot(m actorMsg) {
 func (r *Room) newGameState() *engine.GameState {
 	return &engine.GameState{
 		RoomID:    r.ID,
+		LeaderID:  r.leaderID,
 		Players:   map[engine.PlayerID]*engine.Player{},
 		PhaseIdx:  0,
 		Round:     0,
@@ -391,11 +405,17 @@ func (r *Room) newGameState() *engine.GameState {
 }
 
 func normalizeSettings(s engine.GameSettings) engine.GameSettings {
+	if s.GameID == "" {
+		s.GameID = "jrawful"
+	}
+	if s.GameOptions == nil {
+		s.GameOptions = map[string]any{}
+	}
 	if s.RoundCount < 1 {
 		s.RoundCount = 1
 	}
-	if s.RoundCount > 10 {
-		s.RoundCount = 10
+	if s.RoundCount > 60 {
+		s.RoundCount = 60
 	}
 	if s.GeneratedFakeCount < 0 {
 		s.GeneratedFakeCount = 0
@@ -403,13 +423,13 @@ func normalizeSettings(s engine.GameSettings) engine.GameSettings {
 	if s.GeneratedFakeCount > 6 {
 		s.GeneratedFakeCount = 6
 	}
-	if s.DrawingSeconds < 15 {
+	if s.DrawingSeconds < 10 {
 		s.DrawingSeconds = 60
 	}
 	if s.DrawingSeconds > 300 {
 		s.DrawingSeconds = 300
 	}
-	if s.FakePromptSeconds < 15 {
+	if s.FakePromptSeconds < 10 {
 		s.FakePromptSeconds = 90
 	}
 	if s.FakePromptSeconds > 300 {
@@ -422,6 +442,39 @@ func normalizeSettings(s engine.GameSettings) engine.GameSettings {
 		s.VotingSeconds = 180
 	}
 	return s
+}
+
+func (r *Room) roomMode() RoomMode {
+	switch {
+	case r.status == StatusInGame:
+		return RoomModeInGame
+	case r.postGame:
+		return RoomModeResults
+	case r.selectedGameID == "":
+		return RoomModeGamePicker
+	default:
+		return RoomModeGameLobby
+	}
+}
+
+func protoCatalogGames() []proto.GameDefinition {
+	source := platformcatalog.DefaultCatalog()
+	out := make([]proto.GameDefinition, 0, len(source))
+	for _, game := range source {
+		tags := make([]string, len(game.Tags))
+		copy(tags, game.Tags)
+		out = append(out, proto.GameDefinition{
+			ID:               game.ID,
+			Name:             game.Name,
+			Summary:          game.Summary,
+			MinPlayers:       game.MinPlayers,
+			MaxPlayers:       game.MaxPlayers,
+			EstimatedMinutes: game.EstimatedMinutes,
+			Tags:             tags,
+			Status:           string(game.Status),
+		})
+	}
+	return out
 }
 
 func (r *Room) setStatus(s Status) {
@@ -516,6 +569,8 @@ func (r *Room) onJoin(m actorMsg) {
 		r.state.Players = map[engine.PlayerID]*engine.Player{}
 		r.joinOrder = nil
 		r.leaderID = ""
+		r.state.LeaderID = ""
+		r.selectedGameID = ""
 		r.paused = false
 		r.pencilsDown = false
 		r.rerolled = map[string]bool{}
@@ -554,6 +609,7 @@ func (r *Room) onJoin(m actorMsg) {
 	leaderChanged := false
 	if r.leaderID == "" {
 		r.leaderID = pid
+		r.state.LeaderID = pid
 		leaderChanged = true
 	}
 	r.updateConnCount()
@@ -609,6 +665,7 @@ func (r *Room) snapshotRoomState() proto.RoomState {
 	return proto.RoomState{
 		RoomID:      r.ID,
 		Status:      string(r.status),
+		RoomMode:    string(r.roomMode()),
 		Phase:       phase,
 		Round:       r.state.Round,
 		Players:     players,
@@ -619,12 +676,16 @@ func (r *Room) snapshotRoomState() proto.RoomState {
 		PencilsDown: r.pencilsDown,
 		RemainingMs: remainingMs,
 		Settings: proto.SettingsState{
+			GameID:             r.settings.GameID,
 			RoundCount:         r.settings.RoundCount,
 			GeneratedFakeCount: r.settings.GeneratedFakeCount,
 			DrawingSeconds:     r.settings.DrawingSeconds,
 			FakePromptSeconds:  r.settings.FakePromptSeconds,
 			VotingSeconds:      r.settings.VotingSeconds,
+			GameOptions:        r.settings.GameOptions,
 		},
+		SelectedGameID: r.selectedGameID,
+		GameCatalog:    protoCatalogGames(),
 	}
 }
 
@@ -649,6 +710,7 @@ func (r *Room) onLeave(m actorMsg) {
 		next := r.pickLeader()
 		if next != r.leaderID {
 			r.leaderID = next
+			r.state.LeaderID = next
 			if next != "" {
 				// If we were paused by the departing leader, preserve that
 				// state — the new leader inherits control. No action needed
@@ -663,11 +725,8 @@ func (r *Room) onLeave(m actorMsg) {
 
 	// Re-evaluate the start condition: if the last un-ready player just
 	// dropped, the remaining connected players may now satisfy
-	// allReadyAndEnough. The ready-toggle path is the usual trigger, but
-	// a disconnect can also flip the predicate — so check here too.
-	// Guarded on StatusIdle so we never attempt to "start" a room that's
-	// already InGame / Closed.
-	if r.status == StatusIdle && r.allReadyAndEnough() {
+	if r.status == StatusIdle && r.selectedGameID == "" && r.allReadyAndEnough() {
+		r.selectedGameID = "jrawful"
 		r.onStartGame()
 	}
 }
@@ -714,6 +773,18 @@ func (r *Room) onInput(m actorMsg) {
 		r.handleRerollPrompt(m)
 		return
 	}
+	if m.env.Type == proto.C2SSelectGame {
+		r.handleSelectGame(m)
+		return
+	}
+	if m.env.Type == proto.C2SStartGame {
+		r.handleStartGame(m)
+		return
+	}
+	if m.env.Type == proto.C2SReturnToPicker {
+		r.handleReturnToPicker(m)
+		return
+	}
 
 	// The ready message is lobby-only; we handle it here rather than via a primitive.
 	if m.env.Type == proto.C2SReady {
@@ -744,7 +815,8 @@ func (r *Room) onInput(m actorMsg) {
 			}
 			player.Ready = p.Ready
 			r.broadcastState()
-			if r.allReadyAndEnough() {
+			if r.selectedGameID == "" && r.allReadyAndEnough() {
+				r.selectedGameID = "jrawful"
 				r.onStartGame()
 			}
 		}
@@ -894,7 +966,14 @@ func (r *Room) allReadyAndEnough() bool {
 			}
 		}
 	}
-	const minPlayers = 3
+	minPlayers := 3
+	gameID := r.selectedGameID
+	if gameID == "" {
+		gameID = "jrawful"
+	}
+	if game, ok := platformcatalog.FindGame(gameID); ok && game.MinPlayers > 0 {
+		minPlayers = game.MinPlayers
+	}
 	return connected >= minPlayers && readies == connected
 }
 
@@ -902,7 +981,11 @@ func (r *Room) onStartGame() {
 	if r.status == StatusInGame {
 		return
 	}
+	if r.selectedGameID == "" {
+		return
+	}
 	r.settings = normalizeSettings(r.settings)
+	r.settings.GameID = r.selectedGameID
 	r.state.Settings = r.settings
 	r.rerolled = map[string]bool{}
 	r.drawn = map[string]bool{}
@@ -1016,7 +1099,12 @@ func (r *Room) apply(d engine.AnyDecision) {
 	}
 	r.stopTimer()
 	from := r.phases[r.state.PhaseIdx].Name
-	r.state.PhaseIdx++
+	if r.state.EndAfterAdvance {
+		r.state.EndAfterAdvance = false
+		r.state.PhaseIdx = len(r.phases)
+	} else {
+		r.state.PhaseIdx++
+	}
 	to := "end"
 	if r.state.PhaseIdx < len(r.phases) {
 		to = r.phases[r.state.PhaseIdx].Name
@@ -1085,11 +1173,31 @@ func timeMs(t time.Time) int64 {
 func phaseAcceptsType(phaseName, msgType string) bool {
 	switch msgType {
 	case proto.C2SSubmitDraw:
-		return startsWith(phaseName, "drawing_submit")
+		return startsWith(phaseName, "drawing_submit") ||
+			startsWith(phaseName, "draw_duel_draw") ||
+			startsWith(phaseName, "fake_artist_draw")
 	case proto.C2SSubmitFake:
 		return startsWith(phaseName, "fake_prompt_submit")
 	case proto.C2SSubmitVote:
-		return startsWith(phaseName, "voting")
+		return startsWith(phaseName, "voting") ||
+			startsWith(phaseName, "draw_duel_vote") ||
+			startsWith(phaseName, "fake_artist_vote") ||
+			startsWith(phaseName, "mafia_night_collect") ||
+			startsWith(phaseName, "mafia_day_nominate") ||
+			startsWith(phaseName, "mafia_day_vote") ||
+			startsWith(phaseName, "mafia_day_revote")
+	case proto.C2SSubmitTap:
+		return startsWith(phaseName, "reaction_countdown") ||
+			startsWith(phaseName, "reaction_wait") ||
+			startsWith(phaseName, "reaction_tap")
+	case proto.C2SSubmitPriceGuess:
+		return startsWith(phaseName, "price_guess")
+	case proto.C2SSubmitSplitSetup:
+		return startsWith(phaseName, "split_setup")
+	case proto.C2SSubmitSplitChoice:
+		return startsWith(phaseName, "split_vote")
+	case proto.C2SSubmitFakeArtistGuess:
+		return startsWith(phaseName, "fake_artist_guess")
 	case proto.C2SReady:
 		return false // ready is lobby-only; handled before we get here
 	}
@@ -1245,14 +1353,106 @@ func (r *Room) handleUpdateSettings(m actorMsg) {
 		return
 	}
 	next := normalizeSettings(engine.GameSettings{
+		GameID:             r.selectedGameID,
 		RoundCount:         p.RoundCount,
 		GeneratedFakeCount: p.GeneratedFakeCount,
 		DrawingSeconds:     p.DrawingSeconds,
 		FakePromptSeconds:  p.FakePromptSeconds,
 		VotingSeconds:      p.VotingSeconds,
+		GameOptions:        p.GameOptions,
 	})
 	r.settings = next
 	r.state.Settings = next
+	for _, player := range r.state.Players {
+		player.Ready = false
+	}
+	r.broadcastState()
+}
+
+func (r *Room) handleSelectGame(m actorMsg) {
+	if m.conn.PlayerID != r.leaderID {
+		m.conn.SendError(proto.ErrNotAllowed, "only the party leader can choose a game", m.env.ID)
+		return
+	}
+	if r.status == StatusInGame {
+		m.conn.SendError(proto.ErrWrongPhase, "cannot change games during an active round", m.env.ID)
+		return
+	}
+	var p proto.SelectGamePayload
+	if err := json.Unmarshal(m.env.Payload, &p); err != nil {
+		m.conn.SendError(proto.ErrBadPayload, err.Error(), m.env.ID)
+		return
+	}
+	game, ok := platformcatalog.FindGame(p.GameID)
+	if !ok {
+		m.conn.SendError(proto.ErrBadPayload, "unknown game", m.env.ID)
+		return
+	}
+	if game.Status != platformcatalog.GameStatusAvailable {
+		m.conn.SendError(proto.ErrNotAllowed, "that game is coming soon", m.env.ID)
+		return
+	}
+	r.selectedGameID = game.ID
+	r.settings = normalizeSettings(engine.GameSettings{GameID: game.ID})
+	r.state.Settings = r.settings
+	for _, player := range r.state.Players {
+		player.Ready = false
+	}
+	r.broadcastType(proto.S2CGameSelected, proto.GameSelectedPayload{GameID: game.ID})
+	r.broadcastState()
+}
+
+func (r *Room) handleStartGame(m actorMsg) {
+	if m.conn.PlayerID != r.leaderID {
+		m.conn.SendError(proto.ErrNotAllowed, "only the party leader can start the game", m.env.ID)
+		return
+	}
+	if r.status != StatusIdle || r.postGame {
+		m.conn.SendError(proto.ErrWrongPhase, "game can only start from the game lobby", m.env.ID)
+		return
+	}
+	if r.selectedGameID == "" {
+		m.conn.SendError(proto.ErrNotAllowed, "choose a game first", m.env.ID)
+		return
+	}
+	if err := platformcatalog.CanSelectGame(r.selectedGameID, len(r.state.ActivePlayers())); err != nil {
+		m.conn.SendError(proto.ErrNotAllowed, err.Error(), m.env.ID)
+		return
+	}
+	if !r.allReadyAndEnough() {
+		m.conn.SendError(proto.ErrNotAllowed, "everyone must be ready before starting", m.env.ID)
+		return
+	}
+	r.onStartGame()
+}
+
+func (r *Room) handleReturnToPicker(m actorMsg) {
+	if m.conn.PlayerID != r.leaderID {
+		m.conn.SendError(proto.ErrNotAllowed, "only the party leader can return to the picker", m.env.ID)
+		return
+	}
+	if r.status == StatusInGame {
+		m.conn.SendError(proto.ErrWrongPhase, "cannot leave for the picker during an active game", m.env.ID)
+		return
+	}
+	r.postGame = false
+	r.phases = nil
+	r.current = nil
+	r.stopTimer()
+	r.stopStepTimer()
+	r.stepState = nil
+	r.phaseDeadline = time.Time{}
+	r.pauseRemaining = 0
+	r.stepRemaining = 0
+	r.state.PhaseIdx = 0
+	r.state.Round = 0
+	r.state.PhaseData = map[string]engine.PhaseResult{}
+	r.state.Scores = map[engine.PlayerID]int{}
+	r.selectedGameID = ""
+	r.settings = normalizeSettings(engine.GameSettings{})
+	r.state.Settings = r.settings
+	r.rerolled = map[string]bool{}
+	r.drawn = map[string]bool{}
 	for _, player := range r.state.Players {
 		player.Ready = false
 	}

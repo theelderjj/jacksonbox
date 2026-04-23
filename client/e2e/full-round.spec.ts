@@ -11,8 +11,9 @@ async function makePlayer(browser: Browser, name: string): Promise<Player> {
   return { name, ctx, page };
 }
 
-async function joinMain(p: Player): Promise<void> {
+async function joinRoom(p: Player, roomCode: string): Promise<void> {
   await p.page.goto("/");
+  await p.page.getByPlaceholder("room code").fill(roomCode);
   await p.page.getByPlaceholder("your name").fill(p.name);
   await p.page.getByRole("button", { name: "Join" }).click();
 }
@@ -215,16 +216,28 @@ async function playOneRound(players: readonly Player[], round: number): Promise<
 test.describe("full Jrawful game", () => {
   test("three players play through every round and reach game_end", async ({ browser }) => {
     test.setTimeout(5 * 60_000);
+    const roomCode = `E2E${Date.now().toString().slice(-6)}`;
     const players = await Promise.all(PLAYERS.map((name) => makePlayer(browser, name)));
 
     try {
       await test.step("Lobby: players join and ready up", async () => {
         for (const p of players) {
-          await test.step(`${p.name}: join MAIN room`, async () => {
-            await joinMain(p);
-            await expect(p.page.getByRole("heading", { name: /Lobby/ })).toBeVisible({
+          await test.step(`${p.name}: join ${roomCode}`, async () => {
+            await joinRoom(p, roomCode);
+            await expect(p.page.getByRole("heading", { name: /Jackson Box/ })).toBeVisible({
               timeout: 15_000,
             });
+          });
+        }
+        await test.step("Leader: choose Jrawful from the picker", async () => {
+          await players[0]!.page.getByRole("button", { name: /Choose Jrawful/i }).click();
+          await expect(players[0]!.page.getByRole("heading", { name: /Jrawful Lobby/i })).toBeVisible({
+            timeout: 15_000,
+          });
+        });
+        for (const p of players.slice(1)) {
+          await expect(p.page.getByRole("heading", { name: /Jrawful Lobby/i })).toBeVisible({
+            timeout: 15_000,
           });
         }
         for (const p of players) {
@@ -232,6 +245,9 @@ test.describe("full Jrawful game", () => {
             await p.page.getByRole("button", { name: /I'm ready/ }).click();
           });
         }
+        await test.step("Leader: start the game", async () => {
+          await players[0]!.page.getByRole("button", { name: /Start game/i }).click();
+        });
       });
 
       await test.step("Game: play rounds until final scores", async () => {
@@ -247,6 +263,9 @@ test.describe("full Jrawful game", () => {
             timeout: 60_000,
           });
         }
+        await expect(players[0]!.page.getByRole("button", { name: /Choose another game/i })).toBeVisible({
+          timeout: 15_000,
+        });
       });
     } finally {
       for (const p of players) {

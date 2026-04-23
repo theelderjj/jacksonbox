@@ -31,6 +31,9 @@ export type CanvasProps = {
    */
   disabled?: boolean;
   color?: string;
+  lineWidth?: number;
+  onChange?: (data: StrokesData) => void;
+  underlay?: StrokesData | null;
 };
 
 const CANVAS_SIZE = 480; // render size; normalized coords are 0..1000
@@ -39,7 +42,7 @@ const DEFAULT_STROKE_COLOR = "#0b0f14";
 const STROKE_WIDTH = 4;
 
 const Canvas = forwardRef<CanvasHandle, CanvasProps>(
-  ({ disabled = false, color = DEFAULT_STROKE_COLOR }, ref) => {
+  ({ disabled = false, color = DEFAULT_STROKE_COLOR, lineWidth = STROKE_WIDTH, onChange, underlay = null }, ref) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const strokesRef = useRef<Stroke[]>([]);
   const currentRef = useRef<Stroke | null>(null);
@@ -51,6 +54,7 @@ const Canvas = forwardRef<CanvasHandle, CanvasProps>(
       strokesRef.current = [];
       currentRef.current = null;
       setPointCount(0);
+      onChange?.({ strokes: [] });
       redraw();
     },
   }));
@@ -64,20 +68,19 @@ const Canvas = forwardRef<CanvasHandle, CanvasProps>(
     ctx.fillRect(0, 0, c.width, c.height);
     ctx.lineJoin = "round";
     ctx.lineCap = "round";
-    for (const s of strokesRef.current) {
-      ctx.strokeStyle = s.color;
-      ctx.lineWidth = s.width * (c.width / 1000);
-      ctx.beginPath();
-      for (let i = 0; i < s.points.length; i++) {
-        const [nx, ny] = s.points[i];
-        const x = (nx / 1000) * c.width;
-        const y = (ny / 1000) * c.height;
-        if (i === 0) ctx.moveTo(x, y);
-        else ctx.lineTo(x, y);
-      }
-      ctx.stroke();
+    if (underlay) {
+      drawStrokeSet(ctx, c.width, c.height, underlay.strokes);
     }
+    drawStrokeSet(ctx, c.width, c.height, strokesRef.current);
   }
+
+  function emitChange(): void {
+    onChange?.({ strokes: strokesRef.current.map(cloneStroke) });
+  }
+
+  useEffect(() => {
+    redraw();
+  }, [underlay]);
 
   useEffect(() => {
     redraw();
@@ -93,11 +96,13 @@ const Canvas = forwardRef<CanvasHandle, CanvasProps>(
     const stroke: Stroke = {
       points: [[nx, ny]],
       color,
-      width: STROKE_WIDTH,
+      width: lineWidth,
     };
     currentRef.current = stroke;
     strokesRef.current.push(stroke);
     setPointCount((p) => p + 1);
+    emitChange();
+    redraw();
   }
 
   function pointerMove(e: React.PointerEvent<HTMLCanvasElement>): void {
@@ -115,6 +120,7 @@ const Canvas = forwardRef<CanvasHandle, CanvasProps>(
     if (dx * dx + dy * dy < 1.5) return;
     cur.points.push([nx, ny]);
     setPointCount((p) => p + 1);
+    emitChange();
     redraw();
   }
 
@@ -140,6 +146,7 @@ const Canvas = forwardRef<CanvasHandle, CanvasProps>(
           display: "block",
           cursor,
           opacity: canvasOpacity,
+          touchAction: "none",
           // Belt-and-suspenders: even if our onPointer* handlers didn't
           // fire for some reason, pointer-events:none guarantees no strokes
           // land while disabled. Re-enabled by un-setting the style.
@@ -175,6 +182,30 @@ const Canvas = forwardRef<CanvasHandle, CanvasProps>(
 
 Canvas.displayName = "Canvas";
 export default Canvas;
+
+function drawStrokeSet(ctx: CanvasRenderingContext2D, width: number, height: number, strokes: Stroke[]): void {
+  for (const s of strokes) {
+      ctx.strokeStyle = s.color;
+      ctx.lineWidth = s.width * (width / 1000);
+      ctx.beginPath();
+      for (let i = 0; i < s.points.length; i++) {
+        const [nx, ny] = s.points[i];
+        const x = (nx / 1000) * width;
+        const y = (ny / 1000) * height;
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+    }
+}
+
+function cloneStroke(stroke: Stroke): Stroke {
+  return {
+    color: stroke.color,
+    width: stroke.width,
+    points: stroke.points.map(([x, y]) => [x, y]),
+  };
+}
 
 function toNorm(e: React.PointerEvent<HTMLCanvasElement>, c: HTMLCanvasElement): [number, number] {
   const r = c.getBoundingClientRect();

@@ -19,8 +19,14 @@ func ValidatePayload(typ string, raw json.RawMessage) error {
 		if err := json.Unmarshal(raw, &p); err != nil {
 			return err
 		}
-		if p.RoomID != "MAIN" {
-			return fmt.Errorf("room_id must be MAIN")
+		roomID := strings.TrimSpace(p.RoomID)
+		if len(roomID) < 1 || len(roomID) > 24 {
+			return fmt.Errorf("room_id must be 1..24 chars")
+		}
+		for _, r := range roomID {
+			if !(unicode.IsLetter(r) || unicode.IsDigit(r) || r == '-' || r == '_') {
+				return fmt.Errorf("room_id must be alphanumeric, dash, or underscore")
+			}
 		}
 		name, err := cleanName(p.Name)
 		if err != nil {
@@ -78,6 +84,56 @@ func ValidatePayload(typ string, raw json.RawMessage) error {
 		}
 		return nil
 
+	case C2SSubmitTap:
+		var p SubmitTapPayload
+		return json.Unmarshal(raw, &p)
+
+	case C2SSubmitPriceGuess:
+		var p SubmitPriceGuessPayload
+		if err := json.Unmarshal(raw, &p); err != nil {
+			return err
+		}
+		if p.GuessCents < 0 {
+			return fmt.Errorf("guess_cents must be >= 0")
+		}
+		if p.GuessCents > 10_000_000_00 {
+			return fmt.Errorf("guess_cents too large")
+		}
+		return nil
+
+	case C2SSubmitSplitSetup:
+		var p SubmitSplitSetupPayload
+		if err := json.Unmarshal(raw, &p); err != nil {
+			return err
+		}
+		if strings.TrimSpace(p.OptionA) == "" || strings.TrimSpace(p.OptionB) == "" {
+			return fmt.Errorf("both options are required")
+		}
+		return nil
+
+	case C2SSubmitSplitChoice:
+		var p SubmitSplitChoicePayload
+		if err := json.Unmarshal(raw, &p); err != nil {
+			return err
+		}
+		if p.ChoiceID != "A" && p.ChoiceID != "B" {
+			return fmt.Errorf("choice_id must be A or B")
+		}
+		return nil
+
+	case C2SSubmitFakeArtistGuess:
+		var p SubmitFakeArtistGuessPayload
+		if err := json.Unmarshal(raw, &p); err != nil {
+			return err
+		}
+		if strings.TrimSpace(p.Prompt) == "" {
+			return fmt.Errorf("prompt required")
+		}
+		if utf8.RuneCountInString(strings.TrimSpace(p.Prompt)) > 80 {
+			return fmt.Errorf("prompt too long (max 80)")
+		}
+		return nil
+
 	case C2SSetPause:
 		var p SetPausePayload
 		return json.Unmarshal(raw, &p)
@@ -95,17 +151,17 @@ func ValidatePayload(typ string, raw json.RawMessage) error {
 		if err := json.Unmarshal(raw, &p); err != nil {
 			return err
 		}
-		if p.RoundCount < 1 || p.RoundCount > 10 {
-			return fmt.Errorf("round_count must be between 1 and 10")
+		if p.RoundCount < 1 || p.RoundCount > 60 {
+			return fmt.Errorf("round_count must be between 1 and 60")
 		}
 		if p.GeneratedFakeCount < 0 || p.GeneratedFakeCount > 6 {
 			return fmt.Errorf("generated_fake_count must be between 0 and 6")
 		}
-		if p.DrawingSeconds < 15 || p.DrawingSeconds > 300 {
-			return fmt.Errorf("drawing_seconds must be between 15 and 300")
+		if p.DrawingSeconds < 10 || p.DrawingSeconds > 300 {
+			return fmt.Errorf("drawing_seconds must be between 10 and 300")
 		}
-		if p.FakePromptSeconds < 15 || p.FakePromptSeconds > 300 {
-			return fmt.Errorf("fake_prompt_seconds must be between 15 and 300")
+		if p.FakePromptSeconds < 10 || p.FakePromptSeconds > 300 {
+			return fmt.Errorf("fake_prompt_seconds must be between 10 and 300")
 		}
 		if p.VotingSeconds < 10 || p.VotingSeconds > 180 {
 			return fmt.Errorf("voting_seconds must be between 10 and 180")
@@ -114,6 +170,25 @@ func ValidatePayload(typ string, raw json.RawMessage) error {
 
 	case C2SRerollPrompt:
 		var p RerollPromptPayload
+		return json.Unmarshal(raw, &p)
+
+	case C2SSelectGame:
+		var p SelectGamePayload
+		if err := json.Unmarshal(raw, &p); err != nil {
+			return err
+		}
+		id := strings.TrimSpace(p.GameID)
+		if len(id) < 1 || len(id) > 48 {
+			return fmt.Errorf("game_id must be 1..48 chars")
+		}
+		return nil
+
+	case C2SStartGame:
+		var p StartGamePayload
+		return json.Unmarshal(raw, &p)
+
+	case C2SReturnToPicker:
+		var p ReturnToPickerPayload
 		return json.Unmarshal(raw, &p)
 
 	default:
