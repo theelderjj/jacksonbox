@@ -1,6 +1,9 @@
 import Countdown from "../components/Countdown";
+import { getMafiaRoleGuide } from "../components/gameGuides";
 import { C2S } from "../proto";
 import { client, selfPlayer, useGameState } from "../store";
+
+const ABSTAIN_CHOICE_ID = "__abstain__";
 
 export default function Mafia(): JSX.Element {
   const g = useGameState();
@@ -138,7 +141,7 @@ export default function Mafia(): JSX.Element {
   }
 
   if (g.phase.startsWith("mafia_day_vote")) {
-    const canVote = Boolean(me && isAlive(state?.alive_players, me.id));
+    const canVote = Boolean(state?.can_act);
     return (
       <div className="stack">
         <div className="card">
@@ -148,9 +151,10 @@ export default function Mafia(): JSX.Element {
           </div>
           <p className="muted">{state?.note ?? "Vote to eliminate one player."}</p>
           <RoleGuide role={state?.your_role} phase="vote" />
+          <VoteLedger title="Current vote table" />
           {canVote ? (
             <>
-              <p className="muted">{state?.locked_in ? "Vote locked in. You can still change it before time ends." : "Pick one suspect."}</p>
+              <p className="muted">{voteStatusLine(g, state)}</p>
               <div className="grid">
                 {(state?.target_ids ?? []).map((targetID) => (
                   <button
@@ -161,10 +165,16 @@ export default function Mafia(): JSX.Element {
                     {nameFor(g, targetID)}
                   </button>
                 ))}
+                <button
+                  className="choice"
+                  onClick={() => client.send(C2S.SubmitVote, { drawing_id: "mafia_day", choice_id: ABSTAIN_CHOICE_ID })}
+                >
+                  Abstain
+                </button>
               </div>
             </>
           ) : (
-            <p className="muted">You are out of the game, so you do not vote.</p>
+            <p className="muted">{blockedVoteLine(g, state, me?.id ?? null)}</p>
           )}
           <AliveList />
         </div>
@@ -182,11 +192,10 @@ export default function Mafia(): JSX.Element {
             <Countdown deadlineMs={g.deadlineMs} paused={g.paused} remainingMs={g.pauseRemainingMs} />
           </div>
           <p className="muted">{state?.note ?? "Resolve the tie before the day ends."}</p>
+          <VoteLedger title="Current revote table" />
           {canVote ? (
             <>
-              <p className="muted">
-                {state?.locked_in ? "Choice locked in. You can still change it before time ends." : "Pick one tied suspect."}
-              </p>
+              <p className="muted">{voteStatusLine(g, state)}</p>
               <div className="grid">
                 {(state?.target_ids ?? []).map((targetID) => (
                   <button
@@ -197,10 +206,16 @@ export default function Mafia(): JSX.Element {
                     {nameFor(g, targetID)}
                   </button>
                 ))}
+                <button
+                  className="choice"
+                  onClick={() => client.send(C2S.SubmitVote, { drawing_id: "mafia_revote", choice_id: ABSTAIN_CHOICE_ID })}
+                >
+                  Abstain
+                </button>
               </div>
             </>
           ) : (
-            <p className="muted">Wait for the tied vote to resolve.</p>
+            <p className="muted">{blockedVoteLine(g, state, me?.id ?? null)}</p>
           )}
           <AliveList />
         </div>
@@ -219,6 +234,19 @@ export default function Mafia(): JSX.Element {
               : "The room tied its votes, so nobody was eliminated."}
           </p>
           {reveal?.winner && <p className="muted">{winnerLine(reveal.winner)}</p>}
+          {reveal?.votes && Object.keys(reveal.votes).length > 0 && (
+            <div className="card" style={{ background: "#0f1720" }}>
+              <h3>Who voted for whom</h3>
+              <div className="grid">
+                {Object.entries(reveal.votes).map(([voterID, targetID]) => (
+                  <div key={voterID} className="choice">
+                    <strong>{nameFor(g, voterID)}</strong>
+                    <div className="muted">{voteLabel(g, targetID)}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
           {reveal?.role_map && (
             <div className="stack">
               <h3>Final roles</h3>
@@ -241,6 +269,45 @@ export default function Mafia(): JSX.Element {
   return <div className="card">Preparing Mafia...</div>;
 }
 
+function VoteLedger({ title }: { title: string }): JSX.Element | null {
+  const g = useGameState();
+  const state = g.mafiaState;
+  const votes = state?.public_votes ?? {};
+  const shouldShow =
+    state?.vote_mode === "live_public" ||
+    state?.vote_mode === "sequential_public" ||
+    (state?.phase === "day_vote" && Object.keys(votes).length > 0) ||
+    (state?.phase === "day_revote" && Object.keys(votes).length > 0);
+  if (!shouldShow) return null;
+
+  return (
+    <div className="card" style={{ background: "#0f1720" }}>
+      <h3>{title}</h3>
+      <div className="grid">
+        {(state?.alive_players ?? []).filter((player) => player.alive).map((player) => {
+          const targetID = votes[player.player_id];
+          const isCurrent = state?.current_voter_id === player.player_id;
+          return (
+            <div key={player.player_id} className="choice">
+              <strong>
+                {player.name}
+                {isCurrent ? " (voting now)" : ""}
+              </strong>
+              <div className="muted">
+                {targetID
+                  ? voteLabel(g, targetID)
+                  : state?.vote_mode === "sequential_public"
+                    ? "waiting to vote"
+                    : "no public vote yet"}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function RoleGuide({
   role,
   phase,
@@ -248,7 +315,7 @@ function RoleGuide({
   role: string | undefined;
   phase: "role" | "night" | "day" | "nominate" | "vote";
 }): JSX.Element {
-  const guide = guideForRole(role);
+  const guide = getMafiaRoleGuide(role);
   return (
     <div className="card" style={{ background: "#101a24", marginTop: 12 }} aria-label="Role instructions">
       <h3>How to play {guide.name}</h3>
@@ -299,65 +366,6 @@ function namesFor(g: ReturnType<typeof useGameState>, playerIDs: string[]): stri
   return playerIDs.map((playerID) => nameFor(g, playerID));
 }
 
-function guideForRole(role: string | undefined): {
-  name: string;
-  goal: string;
-  night: string;
-  day: string;
-  tip: string;
-} {
-  switch (role) {
-    case "mafia":
-      return {
-        name: "Mafia",
-        goal: "Win when Mafia equals or outnumbers the town.",
-        night: "Choose one living non-Mafia player to eliminate. Coordinate with your Mafia teammate when there is more than one.",
-        day: "Blend in, redirect suspicion, nominate town players, and avoid being voted out.",
-        tip: "Act like a helpful town member. Push believable suspicions instead of defending too hard.",
-      };
-    case "detective":
-      return {
-        name: "Detective",
-        goal: "Help the town find every Mafia member.",
-        night: "Investigate one living player. You learn whether they are Mafia or Town, or their exact role if that setting is enabled.",
-        day: "Use your information carefully. Reveal too early and Mafia may target you; wait too long and the town may vote wrong.",
-        tip: "Track your results privately and guide nominations without immediately exposing yourself.",
-      };
-    case "doctor":
-      return {
-        name: "Doctor",
-        goal: "Keep town power roles and trusted players alive.",
-        night: "Protect one living player. If Mafia attacks that player, the kill fails. Self-protect depends on the room setting.",
-        day: "Help the town reason through deaths and saves without making yourself an obvious night target.",
-        tip: "Protect likely Mafia targets, not just the loudest player. A successful save can swing the game.",
-      };
-    case "mayor":
-      return {
-        name: "Mayor",
-        goal: "Use your voting power to help town eliminate Mafia.",
-        night: "You sleep at night and do not take a private action.",
-        day: "Your vote counts as three. In mayor-breaks-tie mode, you may be the only player who can resolve a tied vote.",
-        tip: "Stay alive, listen carefully, and use your weighted vote when the room is split.",
-      };
-    case "citizen":
-      return {
-        name: "Citizen",
-        goal: "Find and vote out the Mafia using discussion and voting.",
-        night: "You sleep at night and receive no private information.",
-        day: "Ask questions, compare stories, nominate suspicious players, and vote with the town.",
-        tip: "You have no power role, so your strength is reading behavior and protecting confirmed town players.",
-      };
-    default:
-      return {
-        name: "your role",
-        goal: "Learn your role and help your team win.",
-        night: "Follow the prompt shown during the night phase.",
-        day: "Discuss, nominate, and vote based on the information you have.",
-        tip: "Keep your role private unless revealing it helps your team.",
-      };
-  }
-}
-
 function phaseLabel(phase: string): string {
   switch (phase) {
     case "night":
@@ -396,4 +404,47 @@ function formatRole(role: string | undefined): string {
 
 function winnerLine(winner: string): string {
   return winner === "mafia" ? "Mafia takes the game." : "The town wins the game.";
+}
+
+function voteStatusLine(
+  g: ReturnType<typeof useGameState>,
+  state: ReturnType<typeof useGameState>["mafiaState"],
+): string {
+  switch (state?.vote_mode) {
+    case "live_public":
+      return state.locked_in
+        ? "Your vote is visible and currently locked in, but you can still switch it before time ends."
+        : "Pick a suspect. Everyone can see live vote changes before the timer runs out.";
+    case "sequential_public":
+      return state.locked_in
+        ? "Your public vote is locked in."
+        : state.current_voter_id
+          ? `It is your turn to vote publicly${state.current_voter_id === g.playerId ? "" : ` after ${nameFor(g, state.current_voter_id)}`}.`
+          : "It is your turn to vote publicly.";
+    default:
+      return state?.locked_in
+        ? "Your vote is locked in. You can still change it before time runs out."
+        : "Pick one suspect. Votes stay hidden until the reveal.";
+  }
+}
+
+function blockedVoteLine(
+  g: ReturnType<typeof useGameState>,
+  state: ReturnType<typeof useGameState>["mafiaState"],
+  playerID: string | null,
+): string {
+  if (!playerID || !isAlive(state?.alive_players, playerID)) {
+    return "You are out of the game, so you do not vote.";
+  }
+  if (state?.vote_mode === "sequential_public" && state.current_voter_id) {
+    return `${nameFor(g, state.current_voter_id)} is currently casting the next public vote.`;
+  }
+  return "Wait for the vote to resolve.";
+}
+
+function voteLabel(g: ReturnType<typeof useGameState>, targetID: string): string {
+  if (targetID === ABSTAIN_CHOICE_ID) {
+    return "abstained";
+  }
+  return `voted for ${nameFor(g, targetID)}`;
 }

@@ -1,4 +1,7 @@
 import { useState } from "react";
+import { getLobbyGuide, getMafiaRoleGuide, mafiaRoleGuides } from "../components/gameGuides";
+import RulesIntro from "../components/RulesIntro";
+import { getRulesDeck } from "../components/rulesDecks";
 import { C2S } from "../proto";
 import { client, selfPlayer, useGameState } from "../store";
 
@@ -6,10 +9,14 @@ export default function Lobby(): JSX.Element {
   const g = useGameState();
   const me = selfPlayer(g);
   const [busy, setBusy] = useState(false);
+  const [mafiaRolePreview, setMafiaRolePreview] = useState("mafia");
   const isLeader = !!me && g.leaderId === me.id;
   const connectedPlayers = g.players.filter((p) => p.connected);
   const readyPlayers = connectedPlayers.filter((p) => p.ready);
   const selectedGame = g.gameCatalog.find((game) => game.id === g.selectedGameId) ?? null;
+  const lobbyGuide = getLobbyGuide(g.selectedGameId);
+  const visualRulesDeck = g.selectedGameId ? getRulesDeck(g.selectedGameId) : null;
+  const previewedRole = getMafiaRoleGuide(mafiaRolePreview);
   const mafiaDefaults = defaultMafiaLobbyOptions(connectedPlayers.length);
   const roundOptions = g.selectedGameId === "fake_artist"
     ? Array.from({ length: 60 }, (_, idx) => idx + 1)
@@ -510,6 +517,10 @@ export default function Lobby(): JSX.Element {
                 >
                   {Boolean(g.settings.game_options?.reveal_on_death ?? mafiaDefaults.revealOnDeath) ? "On" : "Off"}
                 </button>
+                <span className="muted">
+                  Turn this on for newer groups or faster deduction games, since every elimination confirms useful information.
+                  Leave it off when you want longer bluffing, shakier reads, and more room for Mafia to hide after a kill.
+                </span>
               </label>
               <label className="stack">
                 <span>Doctor can self-protect</span>
@@ -550,6 +561,30 @@ export default function Lobby(): JSX.Element {
                 </select>
               </label>
               <label>
+                <span>Day voting style</span>
+                <select
+                  value={String(g.settings.game_options?.day_vote_mode ?? "reveal_end")}
+                  disabled={!isLeader}
+                  onChange={(e) =>
+                    updateSettings({
+                      game_options: {
+                        ...(g.settings.game_options ?? {}),
+                        day_vote_mode: e.target.value,
+                      },
+                    })
+                  }
+                >
+                  <option value="reveal_end">Hidden until reveal</option>
+                  <option value="live_public">Live public switching</option>
+                  <option value="sequential_public">Public one by one</option>
+                </select>
+                <span className="muted">
+                  <strong> Hidden until reveal:</strong> everybody chooses in private, then votes are shown at the end.
+                  <strong> Live public switching:</strong> votes stay visible and can change until the timer expires.
+                  <strong> Public one by one:</strong> players vote in order and each vote locks immediately.
+                </span>
+              </label>
+              <label>
                 <span>Detective investigation</span>
                 <select
                   value={String(g.settings.game_options?.investigation_mode ?? mafiaDefaults.investigationMode)}
@@ -566,6 +601,10 @@ export default function Lobby(): JSX.Element {
                   <option value="faction">Mafia or Town</option>
                   <option value="exact_role">Exact role</option>
                 </select>
+                <span className="muted">
+                  <strong> Mafia or Town:</strong> safer, swingier baseline play where the detective only learns allegiance.
+                  <strong> Exact role:</strong> much stronger information that is better for larger rooms or harder town setups.
+                </span>
               </label>
             </>
           )}
@@ -593,6 +632,73 @@ export default function Lobby(): JSX.Element {
           <button onClick={() => client.send(C2S.ReturnToPicker, {})}>Back to picker</button>
         )}
         <button onClick={() => client.disconnect()}>Leave</button>
+      </div>
+
+      {visualRulesDeck && <RulesIntro deck={visualRulesDeck} />}
+
+      <div className="card instruction-card">
+        <h2>{lobbyGuide.title}</h2>
+        <p className="muted">{lobbyGuide.intro}</p>
+        <div className="lobby-guide-grid">
+          {lobbyGuide.sections.map((section) => (
+            <div key={section.title} className="choice">
+              <strong>{section.title}</strong>
+              <div className="muted" style={{ marginTop: 8 }}>
+                {section.body}
+              </div>
+              <ul className="lobby-guide-bullets">
+                {section.bullets.map((bullet) => (
+                  <li key={bullet}>{bullet}</li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </div>
+        {g.selectedGameId === "mafia" && (
+          <div className="mafia-role-preview">
+            <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
+              <h3>Role preview</h3>
+              <span className="muted">Click any role to see how it plays before the match starts.</span>
+            </div>
+            <div className="mafia-role-pills">
+              {mafiaRoleGuides.map((roleGuide) => (
+                <button
+                  key={roleGuide.roleId}
+                  type="button"
+                  className={mafiaRolePreview === roleGuide.roleId ? "primary" : ""}
+                  onClick={() => setMafiaRolePreview(roleGuide.roleId)}
+                >
+                  {roleGuide.name}
+                </button>
+              ))}
+            </div>
+            <div className="lobby-role-card">
+              <h3>{previewedRole.name}</h3>
+              <p className="muted">{previewedRole.goal}</p>
+              <div className="lobby-guide-grid">
+                <div className="choice">
+                  <strong>Night</strong>
+                  <div className="muted" style={{ marginTop: 8 }}>
+                    {previewedRole.night}
+                  </div>
+                </div>
+                <div className="choice">
+                  <strong>Day</strong>
+                  <div className="muted" style={{ marginTop: 8 }}>
+                    {previewedRole.day}
+                  </div>
+                </div>
+                <div className="choice">
+                  <strong>Key tip</strong>
+                  <div className="muted" style={{ marginTop: 8 }}>
+                    {previewedRole.tip}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+        {lobbyGuide.footer && <p className="muted">{lobbyGuide.footer}</p>}
       </div>
     </div>
   );

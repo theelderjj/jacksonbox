@@ -565,6 +565,9 @@ type MafiaStatePayload struct {
 	AlivePlayers []MafiaPlayerState `json:"alive_players"`
 	CanAct       bool               `json:"can_act"`
 	TargetIDs    []string           `json:"target_ids"`
+	VoteMode     string             `json:"vote_mode,omitempty"`
+	PublicVotes  map[string]string  `json:"public_votes,omitempty"`
+	CurrentVoter string             `json:"current_voter_id,omitempty"`
 	Note         string             `json:"note,omitempty"`
 	LockedIn     bool               `json:"locked_in,omitempty"`
 }
@@ -576,6 +579,7 @@ type MafiaRevealPayload struct {
 	EliminatedID   string            `json:"eliminated_id,omitempty"`
 	EliminatedName string            `json:"eliminated_name,omitempty"`
 	EliminatedRole string            `json:"eliminated_role,omitempty"`
+	VoteMode       string            `json:"vote_mode,omitempty"`
 	Votes          map[string]string `json:"votes,omitempty"`
 	AliveIDs       []string          `json:"alive_ids"`
 	Winner         string            `json:"winner,omitempty"`

@@ -550,6 +550,155 @@ func TestMayorOnlyRevoteRejectsNonMayorAndAcceptsMayor(t *testing.T) {
 	}
 }
 
+func TestBuildLobbyConfigSupportsDayVoteModes(t *testing.T) {
+	t.Parallel()
+
+	cfg := BuildLobbyConfig(7, map[string]any{
+		"day_vote_mode": dayVoteModeLivePublic,
+	})
+	if cfg.DayVoteMode != dayVoteModeLivePublic {
+		t.Fatalf("day vote mode: want %q, got %q", dayVoteModeLivePublic, cfg.DayVoteMode)
+	}
+	if got := cfg.GameOptions["day_vote_mode"]; got != dayVoteModeLivePublic {
+		t.Fatalf("game option day_vote_mode: want %q, got %q", dayVoteModeLivePublic, got)
+	}
+}
+
+func TestDayVoteLivePublicBroadcastsVisibleVotes(t *testing.T) {
+	t.Parallel()
+
+	roleResult := testRoleResult(LobbyConfig{
+		RevealOnDeath:     true,
+		TieRule:           tieRuleNoElimination,
+		SelfProtect:       false,
+		InvestigationMode: investigationFaction,
+		DayVoteMode:       dayVoteModeLivePublic,
+		NominationMinimum: 2,
+		DayVoteThreshold:  3,
+	})
+	state := testMafiaState(roleResult)
+	engine.PutResult(state, "mafia_night_reveal_r1", "test", NightRevealResult{Payload: protoPayloadAlive(1, roleResult.Order)})
+	engine.PutResult(state, "mafia_day_nominate_r1", "test", NominationResult{
+		Nominations: map[string]string{
+			"c1": "m1",
+			"d1": "m1",
+			"x1": "c2",
+			"y1": "c2",
+		},
+	})
+	ctx := &engine.PhaseContext{State: state}
+	primitive := newDayVote(1)
+
+	decision, err := primitive.Handle(ctx, voteInput("c1", "m1"))
+	if err != nil {
+		t.Fatalf("live public day vote returned error: %v", err)
+	}
+	if len(decision.Broadcast) == 0 {
+		t.Fatal("expected mafia state broadcasts after a live public vote")
+	}
+
+	foundVisibleVote := false
+	for _, event := range decision.Broadcast {
+		if event.Type != proto.S2CMafiaState {
+			continue
+		}
+		var payload proto.MafiaStatePayload
+		if err := json.Unmarshal(event.Payload, &payload); err != nil {
+			t.Fatalf("unmarshal mafia state: %v", err)
+		}
+		if payload.VoteMode != dayVoteModeLivePublic {
+			t.Fatalf("vote mode: want %q, got %q", dayVoteModeLivePublic, payload.VoteMode)
+		}
+		if payload.PublicVotes["c1"] == "m1" {
+			foundVisibleVote = true
+		}
+	}
+	if !foundVisibleVote {
+		t.Fatal("expected public vote table to include c1 -> m1")
+	}
+}
+
+func TestDayVoteSequentialRequiresCurrentVoter(t *testing.T) {
+	t.Parallel()
+
+	roleResult := testRoleResult(LobbyConfig{
+		RevealOnDeath:     true,
+		TieRule:           tieRuleNoElimination,
+		SelfProtect:       false,
+		InvestigationMode: investigationFaction,
+		DayVoteMode:       dayVoteModeSequential,
+		NominationMinimum: 2,
+		DayVoteThreshold:  3,
+	})
+	state := testMafiaState(roleResult)
+	engine.PutResult(state, "mafia_night_reveal_r1", "test", NightRevealResult{Payload: protoPayloadAlive(1, roleResult.Order)})
+	engine.PutResult(state, "mafia_day_nominate_r1", "test", NominationResult{
+		Nominations: map[string]string{
+			"c1": "m1",
+			"d1": "m1",
+			"x1": "c2",
+			"y1": "c2",
+		},
+	})
+	ctx := &engine.PhaseContext{State: state}
+	primitive := newDayVote(1)
+
+	_, err := primitive.Handle(ctx, voteInput("c1", "m1"))
+	assertErrContains(t, err, "it is not your turn to vote")
+
+	decision, err := primitive.Handle(ctx, voteInput("m1", "m1"))
+	if err != nil {
+		t.Fatalf("sequential vote for current voter returned error: %v", err)
+	}
+	if len(decision.Broadcast) == 0 {
+		t.Fatal("expected state broadcast after sequential vote")
+	}
+}
+
+func TestDayVoteTimeoutMarksMissingVotersAsAbstain(t *testing.T) {
+	t.Parallel()
+
+	roleResult := testRoleResult(LobbyConfig{
+		RevealOnDeath:     true,
+		TieRule:           tieRuleNoElimination,
+		SelfProtect:       false,
+		InvestigationMode: investigationFaction,
+		DayVoteMode:       dayVoteModeRevealEnd,
+		NominationMinimum: 2,
+		DayVoteThreshold:  3,
+	})
+	state := testMafiaState(roleResult)
+	engine.PutResult(state, "mafia_night_reveal_r1", "test", NightRevealResult{Payload: protoPayloadAlive(1, roleResult.Order)})
+	engine.PutResult(state, "mafia_day_nominate_r1", "test", NominationResult{
+		Nominations: map[string]string{
+			"c1": "m1",
+			"d1": "m1",
+			"x1": "c2",
+			"y1": "c2",
+		},
+	})
+	ctx := &engine.PhaseContext{State: state}
+	primitive := newDayVote(1)
+
+	if _, err := primitive.Handle(ctx, voteInput("c1", "m1")); err != nil {
+		t.Fatalf("partial vote returned error: %v", err)
+	}
+
+	timeout, err := primitive.Timeout(ctx)
+	if err != nil {
+		t.Fatalf("day vote timeout returned error: %v", err)
+	}
+	if got := timeout.Result.Votes["c1"]; got != "m1" {
+		t.Fatalf("stored vote: want m1, got %q", got)
+	}
+	if got := timeout.Result.Votes["m1"]; got != voteChoiceAbstain {
+		t.Fatalf("missing voter should abstain, got %q", got)
+	}
+	if got := timeout.Result.Votes["y1"]; got != voteChoiceAbstain {
+		t.Fatalf("missing mayor vote should abstain, got %q", got)
+	}
+}
+
 func protoPayloadAlive(round int, aliveIDs []string) proto.MafiaRevealPayload {
 	return proto.MafiaRevealPayload{
 		Round:    round,

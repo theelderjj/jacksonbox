@@ -47,6 +47,12 @@ const (
 
 	investigationFaction   = "faction"
 	investigationExactRole = "exact_role"
+
+	dayVoteModeRevealEnd  = "reveal_end"
+	dayVoteModeLivePublic = "live_public"
+	dayVoteModeSequential = "sequential_public"
+
+	voteChoiceAbstain = "__abstain__"
 )
 
 type phaseConfig struct {
@@ -62,6 +68,7 @@ type LobbyConfig struct {
 	TieRule            string            `json:"tie_rule"`
 	SelfProtect        bool              `json:"self_protect"`
 	InvestigationMode  string            `json:"investigation_mode"`
+	DayVoteMode        string            `json:"day_vote_mode"`
 	NominationMinimum  int               `json:"nomination_minimum"`
 	DayVoteThreshold   int               `json:"day_vote_threshold"`
 	RecommendedSeconds map[string]int    `json:"recommended_seconds,omitempty"`
@@ -224,10 +231,12 @@ func BuildLobbyConfig(playerCount int, overrides map[string]any) LobbyConfig {
 	cfg.SelfProtect = boolOption(overrides, "self_protect", cfg.SelfProtect)
 	cfg.TieRule = normalizeTieRule(stringOption(overrides, "tie_rule", cfg.TieRule))
 	cfg.InvestigationMode = normalizeInvestigationMode(stringOption(overrides, "investigation_mode", cfg.InvestigationMode))
+	cfg.DayVoteMode = normalizeDayVoteMode(stringOption(overrides, "day_vote_mode", dayVoteModeRevealEnd))
 	cfg.GameOptions["reveal_on_death"] = fmt.Sprintf("%t", cfg.RevealOnDeath)
 	cfg.GameOptions["self_protect"] = fmt.Sprintf("%t", cfg.SelfProtect)
 	cfg.GameOptions["tie_rule"] = cfg.TieRule
 	cfg.GameOptions["investigation_mode"] = cfg.InvestigationMode
+	cfg.GameOptions["day_vote_mode"] = cfg.DayVoteMode
 	return cfg
 }
 
@@ -588,26 +597,38 @@ func (p *dayVotePrimitive) Handle(ctx *engine.PhaseContext, in engine.Input) (en
 	if err := json.Unmarshal(in.Value, &payload); err != nil {
 		return engine.Decision[DayVoteResult]{}, err
 	}
-	if !slices.Contains(candidates, payload.ChoiceID) {
+	if payload.ChoiceID != voteChoiceAbstain && !slices.Contains(candidates, payload.ChoiceID) {
 		return engine.Decision[DayVoteResult]{}, fmt.Errorf("invalid vote target")
+	}
+	if roleResult.Config.DayVoteMode == dayVoteModeSequential {
+		if nextSequentialVoter(roleResult.Order, alive, p.votes) != playerID {
+			return engine.Decision[DayVoteResult]{}, fmt.Errorf("it is not your turn to vote")
+		}
+		if p.votes[playerID] != "" {
+			return engine.Decision[DayVoteResult]{}, fmt.Errorf("your public vote is already locked")
+		}
 	}
 	p.votes[playerID] = payload.ChoiceID
 
-	update, _ := json.Marshal(buildDayVoteStatePayload(roleResult, p.round, alive, candidates, p.votes, playerID))
 	decision := engine.Decision[DayVoteResult]{
-		Broadcast: []engine.Event{{Type: proto.S2CMafiaState, Payload: update}},
+		Broadcast: dayVoteEvents(roleResult, p.round, alive, candidates, p.votes),
 	}
 	if len(p.votes) >= livingCount(alive) {
 		decision.AdvancePhase = true
-		decision.Result = DayVoteResult{Votes: cloneStringMap(p.votes)}
+		decision.Result = DayVoteResult{Votes: finalizeVotes(roleResult.Order, alive, p.votes)}
 	}
 	return decision, nil
 }
 
-func (p *dayVotePrimitive) Timeout(_ *engine.PhaseContext) (engine.Decision[DayVoteResult], error) {
+func (p *dayVotePrimitive) Timeout(ctx *engine.PhaseContext) (engine.Decision[DayVoteResult], error) {
+	roleResult, ok := getRoleResult(ctx.State)
+	if !ok {
+		return engine.Decision[DayVoteResult]{}, fmt.Errorf("missing role assignment")
+	}
+	alive := aliveBeforeDay(ctx.State, p.round)
 	return engine.Decision[DayVoteResult]{
 		AdvancePhase: true,
-		Result:       DayVoteResult{Votes: cloneStringMap(p.votes)},
+		Result:       DayVoteResult{Votes: finalizeVotes(roleResult.Order, alive, p.votes)},
 	}, nil
 }
 
@@ -663,26 +684,38 @@ func (p *dayRevotePrimitive) Handle(ctx *engine.PhaseContext, in engine.Input) (
 	if err := json.Unmarshal(in.Value, &payload); err != nil {
 		return engine.Decision[DayRevoteResult]{}, err
 	}
-	if !slices.Contains(decisionInfo.CandidateIDs, payload.ChoiceID) {
+	if payload.ChoiceID != voteChoiceAbstain && !slices.Contains(decisionInfo.CandidateIDs, payload.ChoiceID) {
 		return engine.Decision[DayRevoteResult]{}, fmt.Errorf("invalid revote target")
+	}
+	if !decisionInfo.MayorOnly && roleResult.Config.DayVoteMode == dayVoteModeSequential {
+		if nextSequentialVoter(roleResult.Order, alive, p.votes) != playerID {
+			return engine.Decision[DayRevoteResult]{}, fmt.Errorf("it is not your turn to vote")
+		}
+		if p.votes[playerID] != "" {
+			return engine.Decision[DayRevoteResult]{}, fmt.Errorf("your public vote is already locked")
+		}
 	}
 	p.votes[playerID] = payload.ChoiceID
 
-	update, _ := json.Marshal(buildDayRevoteStatePayload(roleResult, p.round, alive, decisionInfo, p.votes, playerID))
 	decision := engine.Decision[DayRevoteResult]{
-		Broadcast: []engine.Event{{Type: proto.S2CMafiaState, Payload: update}},
+		Broadcast: dayRevoteEvents(roleResult, p.round, alive, decisionInfo, p.votes),
 	}
 	if decisionInfo.MayorOnly || len(p.votes) >= livingCount(alive) {
 		decision.AdvancePhase = true
-		decision.Result = DayRevoteResult{Votes: cloneStringMap(p.votes)}
+		decision.Result = DayRevoteResult{Votes: finalizeVotes(roleResult.Order, alive, p.votes)}
 	}
 	return decision, nil
 }
 
-func (p *dayRevotePrimitive) Timeout(_ *engine.PhaseContext) (engine.Decision[DayRevoteResult], error) {
+func (p *dayRevotePrimitive) Timeout(ctx *engine.PhaseContext) (engine.Decision[DayRevoteResult], error) {
+	roleResult, ok := getRoleResult(ctx.State)
+	if !ok {
+		return engine.Decision[DayRevoteResult]{}, fmt.Errorf("missing role assignment")
+	}
+	alive := aliveBeforeDay(ctx.State, p.round)
 	return engine.Decision[DayRevoteResult]{
 		AdvancePhase: true,
-		Result:       DayRevoteResult{Votes: cloneStringMap(p.votes)},
+		Result:       DayRevoteResult{Votes: finalizeVotes(roleResult.Order, alive, p.votes)},
 	}, nil
 }
 
@@ -893,6 +926,7 @@ func resolveDayReveal(state *engine.GameState, round int) (proto.MafiaRevealPayl
 	reveal := proto.MafiaRevealPayload{
 		Round:    round,
 		Phase:    "day_reveal",
+		VoteMode: roleResult.Config.DayVoteMode,
 		Votes:    cloneStringMap(dayVoteResult.Votes),
 		AliveIDs: nil,
 	}
@@ -999,11 +1033,18 @@ func dayNominateEvents(roleResult RoleAssignmentResult, round int, alive map[str
 func dayVoteEvents(roleResult RoleAssignmentResult, round int, alive map[string]bool, candidates []string, selections map[string]string) []engine.Event {
 	out := make([]engine.Event, 0, len(roleResult.Order))
 	for _, playerID := range roleResult.Order {
-		note := "Vote to eliminate one nominated player."
+		note := dayVotePrompt(roleResult, candidates)
 		if len(candidates) == 0 {
-			note = "Nobody received enough nominations. No elimination will happen today."
-		} else if roleResult.Roles[playerID] == roleMayor {
-			note = "Vote to eliminate one nominated player. Your vote counts as 3."
+		} else if roleResult.Config.DayVoteMode == dayVoteModeSequential {
+			currentVoter := nextSequentialVoter(roleResult.Order, alive, selections)
+			switch {
+			case currentVoter == "":
+				note = "All public votes are locked in."
+			case currentVoter == playerID:
+				note = "It is your turn to cast a public vote. Once you vote, it is locked."
+			default:
+				note = fmt.Sprintf("%s is currently casting the next public vote.", roleResult.Names[currentVoter])
+			}
 		}
 		payload := proto.MafiaStatePayload{
 			PlayerID:     playerID,
@@ -1012,8 +1053,11 @@ func dayVoteEvents(roleResult RoleAssignmentResult, round int, alive map[string]
 			YourRole:     roleResult.Roles[playerID],
 			TeamIDs:      teamIDsFor(roleResult, playerID),
 			AlivePlayers: alivePlayersPayload(roleResult, alive),
-			CanAct:       alive[playerID] && len(candidates) > 0,
+			CanAct:       canDayVote(roleResult, alive, playerID, candidates, selections),
 			TargetIDs:    append([]string(nil), candidates...),
+			VoteMode:     roleResult.Config.DayVoteMode,
+			PublicVotes:  visibleVotes(roleResult.Config.DayVoteMode, selections),
+			CurrentVoter: nextSequentialVoter(roleResult.Order, alive, selections),
 			LockedIn:     selections != nil && selections[playerID] != "",
 			Note:         note,
 		}
@@ -1025,6 +1069,10 @@ func dayVoteEvents(roleResult RoleAssignmentResult, round int, alive map[string]
 
 func dayRevoteEvents(roleResult RoleAssignmentResult, round int, alive map[string]bool, decision revoteInfo, selections map[string]string) []engine.Event {
 	out := make([]engine.Event, 0, len(roleResult.Order))
+	currentVoter := nextSequentialVoter(roleResult.Order, alive, selections)
+	if decision.MayorOnly {
+		currentVoter = roleResult.MayorID
+	}
 	for _, playerID := range roleResult.Order {
 		canAct := false
 		targets := []string{}
@@ -1039,8 +1087,19 @@ func dayRevoteEvents(roleResult RoleAssignmentResult, round int, alive map[strin
 				note = "The mayor is breaking the tie."
 			}
 		default:
-			canAct = alive[playerID]
+			canAct = canSequentialRevote(roleResult, alive, playerID, selections)
 			targets = append([]string(nil), decision.CandidateIDs...)
+			if roleResult.Config.DayVoteMode == dayVoteModeSequential {
+				currentVoter := nextSequentialVoter(roleResult.Order, alive, selections)
+				switch {
+				case currentVoter == "":
+					note = "All public revotes are locked in."
+				case currentVoter == playerID:
+					note = "It is your turn to cast the next public revote. Once you vote, it is locked."
+				default:
+					note = fmt.Sprintf("%s is currently casting the next public revote.", roleResult.Names[currentVoter])
+				}
+			}
 		}
 		payload := proto.MafiaStatePayload{
 			PlayerID:     playerID,
@@ -1051,6 +1110,9 @@ func dayRevoteEvents(roleResult RoleAssignmentResult, round int, alive map[strin
 			AlivePlayers: alivePlayersPayload(roleResult, alive),
 			CanAct:       canAct,
 			TargetIDs:    targets,
+			VoteMode:     roleResult.Config.DayVoteMode,
+			PublicVotes:  visibleVotes(roleResult.Config.DayVoteMode, selections),
+			CurrentVoter: currentVoter,
 			LockedIn:     selections != nil && selections[playerID] != "",
 			Note:         note,
 		}
@@ -1097,12 +1159,17 @@ func buildNominationStatePayload(roleResult RoleAssignmentResult, round int, ali
 }
 
 func buildDayVoteStatePayload(roleResult RoleAssignmentResult, round int, alive map[string]bool, candidates []string, selections map[string]string, playerID string) proto.MafiaStatePayload {
-	note := "Vote to eliminate one nominated player."
-	if roleResult.Roles[playerID] == roleMayor {
-		note = "Vote to eliminate one nominated player. Your vote counts as 3."
-	}
-	if len(candidates) == 0 {
-		note = "Nobody received enough nominations. No elimination will happen today."
+	note := dayVotePrompt(roleResult, candidates)
+	if roleResult.Config.DayVoteMode == dayVoteModeSequential && len(candidates) > 0 {
+		currentVoter := nextSequentialVoter(roleResult.Order, alive, selections)
+		switch {
+		case currentVoter == "":
+			note = "All public votes are locked in."
+		case currentVoter == playerID:
+			note = "It is your turn to cast a public vote. Once you vote, it is locked."
+		default:
+			note = fmt.Sprintf("%s is currently casting the next public vote.", roleResult.Names[currentVoter])
+		}
 	}
 	return proto.MafiaStatePayload{
 		PlayerID:     playerID,
@@ -1111,8 +1178,11 @@ func buildDayVoteStatePayload(roleResult RoleAssignmentResult, round int, alive 
 		YourRole:     roleResult.Roles[playerID],
 		TeamIDs:      teamIDsFor(roleResult, playerID),
 		AlivePlayers: alivePlayersPayload(roleResult, alive),
-		CanAct:       alive[playerID] && len(candidates) > 0,
+		CanAct:       canDayVote(roleResult, alive, playerID, candidates, selections),
 		TargetIDs:    append([]string(nil), candidates...),
+		VoteMode:     roleResult.Config.DayVoteMode,
+		PublicVotes:  visibleVotes(roleResult.Config.DayVoteMode, selections),
+		CurrentVoter: nextSequentialVoter(roleResult.Order, alive, selections),
 		LockedIn:     selections != nil && selections[playerID] != "",
 		Note:         note,
 	}
@@ -1122,12 +1192,14 @@ func buildDayRevoteStatePayload(roleResult RoleAssignmentResult, round int, aliv
 	canAct := false
 	targets := []string{}
 	note := decision.Note
+	currentVoter := nextSequentialVoter(roleResult.Order, alive, selections)
 	switch {
 	case len(decision.CandidateIDs) == 0:
 		note = "No revote is required."
 	case decision.MayorOnly:
 		canAct = alive[playerID] && playerID == roleResult.MayorID
 		targets = append([]string(nil), decision.CandidateIDs...)
+		currentVoter = roleResult.MayorID
 		if playerID != roleResult.MayorID {
 			note = "The mayor is breaking the tie."
 		}
@@ -1144,6 +1216,9 @@ func buildDayRevoteStatePayload(roleResult RoleAssignmentResult, round int, aliv
 		AlivePlayers: alivePlayersPayload(roleResult, alive),
 		CanAct:       canAct,
 		TargetIDs:    targets,
+		VoteMode:     roleResult.Config.DayVoteMode,
+		PublicVotes:  visibleVotes(roleResult.Config.DayVoteMode, selections),
+		CurrentVoter: currentVoter,
 		LockedIn:     selections != nil && selections[playerID] != "",
 		Note:         note,
 	}
@@ -1731,5 +1806,79 @@ func normalizeInvestigationMode(raw string) string {
 		return raw
 	default:
 		return investigationFaction
+	}
+}
+
+func normalizeDayVoteMode(raw string) string {
+	switch raw {
+	case dayVoteModeRevealEnd, dayVoteModeLivePublic, dayVoteModeSequential:
+		return raw
+	default:
+		return dayVoteModeRevealEnd
+	}
+}
+
+func visibleVotes(mode string, votes map[string]string) map[string]string {
+	switch mode {
+	case dayVoteModeLivePublic, dayVoteModeSequential:
+		return cloneStringMap(votes)
+	default:
+		return nil
+	}
+}
+
+func nextSequentialVoter(order []string, alive map[string]bool, votes map[string]string) string {
+	for _, playerID := range order {
+		if !alive[playerID] {
+			continue
+		}
+		if votes[playerID] == "" {
+			return playerID
+		}
+	}
+	return ""
+}
+
+func canDayVote(roleResult RoleAssignmentResult, alive map[string]bool, playerID string, candidates []string, selections map[string]string) bool {
+	if !alive[playerID] || len(candidates) == 0 {
+		return false
+	}
+	if roleResult.Config.DayVoteMode != dayVoteModeSequential {
+		return true
+	}
+	return nextSequentialVoter(roleResult.Order, alive, selections) == playerID
+}
+
+func canSequentialRevote(roleResult RoleAssignmentResult, alive map[string]bool, playerID string, selections map[string]string) bool {
+	if roleResult.Config.DayVoteMode != dayVoteModeSequential {
+		return alive[playerID]
+	}
+	return alive[playerID] && nextSequentialVoter(roleResult.Order, alive, selections) == playerID
+}
+
+func finalizeVotes(order []string, alive map[string]bool, votes map[string]string) map[string]string {
+	out := cloneStringMap(votes)
+	for _, playerID := range order {
+		if !alive[playerID] {
+			continue
+		}
+		if strings.TrimSpace(out[playerID]) == "" {
+			out[playerID] = voteChoiceAbstain
+		}
+	}
+	return out
+}
+
+func dayVotePrompt(roleResult RoleAssignmentResult, candidates []string) string {
+	if len(candidates) == 0 {
+		return "Nobody received enough nominations. No elimination will happen today."
+	}
+	switch roleResult.Config.DayVoteMode {
+	case dayVoteModeLivePublic:
+		return "Votes are public while the timer runs. You can switch targets until time expires, or abstain."
+	case dayVoteModeSequential:
+		return "Public votes happen one at a time. Once a player votes or abstains, that choice is locked."
+	default:
+		return "Votes stay hidden until the reveal at the end of the day. If you miss the timer, you abstain."
 	}
 }

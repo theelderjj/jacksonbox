@@ -461,6 +461,9 @@ export type MafiaStatePayload = {
   alive_players: MafiaPlayerState[];
   can_act: boolean;
   target_ids: string[];
+  vote_mode?: string;
+  public_votes?: Record<string, string>;
+  current_voter_id?: string;
   note?: string;
   locked_in?: boolean;
 };
@@ -472,6 +475,7 @@ export type MafiaRevealPayload = {
   eliminated_id?: string;
   eliminated_name?: string;
   eliminated_role?: string;
+  vote_mode?: string;
   votes?: Record<string, string>;
   alive_ids: string[];
   winner?: string;
